@@ -140,7 +140,8 @@ RAG_CONFIG = RAGConfig()
 @dataclass
 class MLConfig:
     """Configuration for the ML Signal Engine."""
-    model_path: str = str(MODELS_DIR / "trained" / "catboost_best.cbm")
+    model_path: str = r"G:\......................AI_Models\catboost_v2_advanced_20250724_011145.cbm"
+    models_base_dir: str = r"G:\......................AI_Models"
     confidence_threshold: float = 0.65
     features_version: str = "v2"
     supported_timeframes: list = field(default_factory=lambda: ["1h", "4h", "1d"])

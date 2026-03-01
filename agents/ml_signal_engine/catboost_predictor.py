@@ -1,91 +1,405 @@
 """
 SCRIPT NAME: catboost_predictor.py
 ====================================
-Execution Location: K:\_DEV_MVP_2026\Market_Hawk_3\agents\ml_signal_engine\
-Purpose: ML Signal Engine — CatBoost Model Wrapper (76.47% accuracy)
+Execution Location: market-hawk-mvp/agents/ml_signal_engine/
+Purpose: ML Signal Engine — Multi-Model Trading Signal Generator
+Hardware Optimization: Intel i7-9700F, NVIDIA GTX 1070 8GB VRAM, 64GB DDR4
 Creation Date: 2026-03-01
+Last Modified: 2026-03-01
+
+Loads trained ML models from G drive model repository.
+Supports CatBoost (.cbm), sklearn/xgboost/lightgbm (.pkl) with associated scalers.
+
+AVAILABLE MODELS (from G drive):
+    - catboost_v2_advanced (.cbm) — CatBoost native format
+    - CatBoost_CLEAN_acc75.pkl — Rebuilt, 75% accuracy
+    - CatBoost_ULTRA_acc75.pkl — Ultra-tuned, 75%
+    - PER_CATEGORY_MODELS/ — Per-asset models (commodities 82%, indices 76%)
+    - Modele_AI_80_Plus/ — Suite of 10 models (needs validation for overfitting)
+
+60 features used across all models (TA-Lib based).
 """
 
+import gc
+import pickle
 import logging
-from typing import Dict, Any
+from typing import Dict, Optional, Any, List
+from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger("market_hawk.ml_signal")
 
 
+# ============================================================
+# MODEL REGISTRY — All available models
+# ============================================================
+
+MODEL_REGISTRY = {
+    # === Most reliable (realistic accuracy) ===
+    "catboost_v2": {
+        "path": r"G:\......................AI_Models\catboost_v2_advanced_20250724_011145.cbm",
+        "type": "catboost_native",
+        "scaler": None,
+        "accuracy": "TBD — needs walk-forward validation",
+        "notes": "CatBoost native .cbm format",
+    },
+    "catboost_clean_75": {
+        "path": r"G:\......................AI_Models\REBUILT_MODELS\CatBoost_CLEAN_acc75.pkl",
+        "type": "pickle",
+        "scaler": None,
+        "accuracy": 0.75,
+        "notes": "Rebuilt clean, 75% accuracy",
+    },
+    "catboost_ultra_75": {
+        "path": r"G:\......................AI_Models\ULTRA_TUNED_MODELS\CatBoost_ULTRA_acc75.pkl",
+        "type": "pickle",
+        "scaler": None,
+        "accuracy": 0.75,
+        "notes": "Ultra-tuned, 75% accuracy",
+    },
+
+    # === Per-category models ===
+    "catboost_commodities_82": {
+        "path": r"G:\......................AI_Models\PER_CATEGORY_MODELS\CatBoost_commodities_acc82.pkl",
+        "type": "pickle",
+        "scaler": None,
+        "accuracy": 0.82,
+        "notes": "Commodities specialist",
+    },
+    "catboost_indices_76": {
+        "path": r"G:\......................AI_Models\PER_CATEGORY_MODELS\CatBoost_indices_acc76.pkl",
+        "type": "pickle",
+        "scaler": None,
+        "accuracy": 0.76,
+        "notes": "Indices specialist",
+    },
+    "catboost_crypto_56": {
+        "path": r"G:\......................AI_Models\PER_CATEGORY_MODELS\CatBoost_crypto_acc56.pkl",
+        "type": "pickle",
+        "scaler": None,
+        "accuracy": 0.56,
+        "notes": "Crypto — needs improvement",
+    },
+
+    # === 80+ Suite (use with caution — may be overfitted) ===
+    "catboost_80plus": {
+        "path": r"G:\......................AI_Models\Modele_AI_80_Plus\CatBoost_model.pkl",
+        "type": "pickle",
+        "scaler": r"G:\......................AI_Models\Modele_AI_80_Plus\CatBoost_scaler.pkl",
+        "accuracy": 1.0,
+        "notes": "⚠️ 100% accuracy — likely overfitted, needs walk-forward validation",
+    },
+    "xgboost_80plus": {
+        "path": r"G:\......................AI_Models\Modele_AI_80_Plus\XGBoost_model.pkl",
+        "type": "pickle",
+        "scaler": r"G:\......................AI_Models\Modele_AI_80_Plus\XGBoost_scaler.pkl",
+        "accuracy": 0.9996,
+        "notes": "⚠️ 99.96% — likely overfitted",
+    },
+    "extratrees_80plus": {
+        "path": r"G:\......................AI_Models\Modele_AI_80_Plus\ExtraTrees_model.pkl",
+        "type": "pickle",
+        "scaler": r"G:\......................AI_Models\Modele_AI_80_Plus\ExtraTrees_scaler.pkl",
+        "accuracy": 0.9842,
+        "notes": "98.4% — needs validation",
+    },
+}
+
+# Features used by all 80_Plus models (60 features)
+FEATURES_60 = [
+    "Open", "High", "Low", "Close", "Volume", "Dividends", "Stock Splits",
+    "open", "high", "low", "close", "volume",
+    "AskVolume_Sum", "BidVolume_Sum",
+    "returns", "log_returns",
+    "SMA_5", "EMA_5", "SMA_10", "EMA_10", "SMA_20", "EMA_20",
+    "SMA_50", "EMA_50", "SMA_200", "EMA_200",
+    "RSI", "BB_middle", "BB_upper", "BB_lower", "BB_width", "BB_position",
+    "MACD", "MACD_signal", "MACD_histogram",
+    "volatility_20", "ATR", "volume_SMA", "volume_ratio", "OBV",
+    "HL_spread", "CO_spread", "efficiency_ratio",
+    "hour", "day_of_week",
+    "is_london_session", "is_ny_session", "is_asia_session",
+    "source_file", "Adj Close",
+    "price_change", "price_change_pct", "price_range",
+    "rsi", "macd", "signal",
+    "ma_5", "ma_10", "ma_20", "volume_ma",
+]
+
+
 class MLSignalEngine:
     """
-    ML Signal Engine Agent — CatBoost-based trading signal generator.
-    Wraps the walk-forward validated CatBoost model (76.47% accuracy).
+    ML Signal Engine Agent — Multi-model trading signal generator.
+
+    Can load any model from the model registry. Supports ensemble voting
+    across multiple models for more robust signals.
+
+    Usage:
+        engine = MLSignalEngine()
+        engine.load_model("catboost_clean_75")
+        signal = engine.predict("AAPL", {"features": feature_array})
+
+        # Or load multiple models for ensemble
+        engine.load_model("catboost_clean_75")
+        engine.load_model("catboost_indices_76")
+        signal = engine.ensemble_predict("AAPL", {"features": feature_array})
     """
 
-    def __init__(self, config=None):
-        from config.settings import ML_CONFIG
-        self.config = config or ML_CONFIG
-        self._model = None
+    def __init__(self, default_model: str = "catboost_v2"):
+        self._models = {}        # model_name -> loaded model
+        self._scalers = {}       # model_name -> loaded scaler
+        self._default_model = default_model
         self._initialized = False
 
-    def initialize(self) -> bool:
-        if self._initialized:
-            return True
-        try:
-            model_path = Path(self.config.model_path)
-            if not model_path.exists():
-                logger.warning("Model not found: %s — demo mode", model_path)
-                self._initialized = True
-                return True
-
-            from catboost import CatBoostClassifier
-            self._model = CatBoostClassifier()
-            self._model.load_model(str(model_path))
-            self._initialized = True
-            logger.info("ML Signal Engine loaded from %s", model_path)
-            return True
-
-        except ImportError:
-            logger.warning("CatBoost not installed — demo mode")
-            self._initialized = True
-            return True
-        except Exception as e:
-            logger.error("Failed to load ML model: %s", str(e))
+    def load_model(self, model_name: str) -> bool:
+        """Load a model from the registry."""
+        if model_name not in MODEL_REGISTRY:
+            logger.error("Model '%s' not in registry. Available: %s",
+                         model_name, list(MODEL_REGISTRY.keys()))
             return False
 
-    def predict(self, symbol: str, context: Dict = None) -> Dict[str, Any]:
-        """Generate trading signal for a symbol."""
-        if not self._initialized:
-            self.initialize()
+        entry = MODEL_REGISTRY[model_name]
+        model_path = Path(entry["path"])
 
-        context = context or {}
+        if not model_path.exists():
+            logger.error("Model file not found: %s", model_path)
+            return False
 
-        if self._model is not None and "features" in context:
-            try:
-                import numpy as np
-                features = np.array(context["features"]).reshape(1, -1)
-                prediction = self._model.predict(features)[0]
-                probabilities = self._model.predict_proba(features)[0]
-                confidence = float(max(probabilities))
+        try:
+            if entry["type"] == "catboost_native":
+                from catboost import CatBoostClassifier
+                model = CatBoostClassifier()
+                model.load_model(str(model_path))
+            elif entry["type"] == "pickle":
+                with open(model_path, "rb") as f:
+                    model = pickle.load(f)
+            else:
+                logger.error("Unknown model type: %s", entry["type"])
+                return False
 
-                action_map = {0: "SELL", 1: "HOLD", 2: "BUY"}
-                action = action_map.get(int(prediction), "HOLD")
+            self._models[model_name] = model
 
-                return {
-                    "recommendation": action,
-                    "confidence": confidence,
-                    "reasoning": f"CatBoost: {action} with {confidence:.2%} confidence for {symbol}",
-                    "metadata": {"probabilities": probabilities.tolist(),
-                                 "model": "catboost_v2",
-                                 "walk_forward_accuracy": 0.7647}
-                }
-            except Exception as e:
-                logger.error("Prediction failed for %s: %s", symbol, str(e))
+            # Load scaler if available
+            if entry.get("scaler"):
+                scaler_path = Path(entry["scaler"])
+                if scaler_path.exists():
+                    with open(scaler_path, "rb") as f:
+                        self._scalers[model_name] = pickle.load(f)
+                    logger.info("Loaded scaler for %s", model_name)
 
+            self._initialized = True
+            logger.info("✅ Model loaded: %s (accuracy: %s) — %s",
+                         model_name, entry["accuracy"], entry["notes"])
+            return True
+
+        except Exception as e:
+            logger.error("Failed to load model %s: %s", model_name, str(e))
+            return False
+
+    def list_models(self) -> Dict[str, Dict]:
+        """List all available models in the registry."""
         return {
-            "recommendation": "HOLD",
-            "confidence": 0.0,
-            "reasoning": f"No features available for {symbol} (demo mode)",
-            "metadata": {"mode": "demo"}
+            name: {
+                "accuracy": entry["accuracy"],
+                "notes": entry["notes"],
+                "loaded": name in self._models,
+                "path_exists": Path(entry["path"]).exists(),
+            }
+            for name, entry in MODEL_REGISTRY.items()
         }
 
+    def predict(self, symbol: str, context: Dict = None,
+                model_name: str = None) -> Dict[str, Any]:
+        """
+        Generate trading signal using a specific model.
+
+        Args:
+            symbol: Trading symbol
+            context: Must contain 'features' key with feature array
+            model_name: Which model to use (default: first loaded)
+
+        Returns:
+            Dict with recommendation, confidence, reasoning
+        """
+        context = context or {}
+
+        # Select model
+        if model_name and model_name in self._models:
+            model = self._models[model_name]
+            scaler = self._scalers.get(model_name)
+        elif self._models:
+            model_name = list(self._models.keys())[0]
+            model = self._models[model_name]
+            scaler = self._scalers.get(model_name)
+        else:
+            # Try to load default model
+            if not self.load_model(self._default_model):
+                return {
+                    "recommendation": "HOLD",
+                    "confidence": 0.0,
+                    "reasoning": f"No model loaded for {symbol}",
+                    "metadata": {"mode": "no_model"}
+                }
+            model = self._models[self._default_model]
+            model_name = self._default_model
+            scaler = self._scalers.get(self._default_model)
+
+        if "features" not in context:
+            return {
+                "recommendation": "HOLD",
+                "confidence": 0.0,
+                "reasoning": f"No features provided for {symbol}",
+                "metadata": {"mode": "no_features", "model": model_name}
+            }
+
+        try:
+            import numpy as np
+            features = np.array(context["features"]).reshape(1, -1)
+
+            # Apply scaler if available
+            if scaler is not None:
+                features = scaler.transform(features)
+
+            # Predict
+            prediction = model.predict(features)
+            if hasattr(prediction, 'flatten'):
+                prediction = prediction.flatten()[0]
+
+            # Get probabilities if available
+            confidence = 0.5
+            probabilities = None
+            if hasattr(model, 'predict_proba'):
+                probas = model.predict_proba(features)
+                if hasattr(probas, 'flatten'):
+                    probabilities = probas.flatten().tolist()
+                confidence = float(max(probas.flatten()))
+
+            # Map prediction to action
+            pred_int = int(prediction)
+            action_map = {0: "SELL", 1: "HOLD", 2: "BUY"}
+            # Binary classification (0/1)
+            if pred_int in [0, 1] and len(action_map) > 2:
+                action_map = {0: "SELL", 1: "BUY"}
+            action = action_map.get(pred_int, "HOLD")
+
+            return {
+                "recommendation": action,
+                "confidence": confidence,
+                "reasoning": (f"{model_name}: {action} for {symbol} "
+                              f"(confidence: {confidence:.2%})"),
+                "metadata": {
+                    "model": model_name,
+                    "accuracy": MODEL_REGISTRY[model_name]["accuracy"],
+                    "probabilities": probabilities,
+                    "prediction_raw": pred_int,
+                }
+            }
+
+        except Exception as e:
+            logger.error("Prediction failed (%s, %s): %s", model_name, symbol, str(e))
+            return {
+                "recommendation": "HOLD",
+                "confidence": 0.0,
+                "reasoning": f"Prediction error: {str(e)}",
+                "metadata": {"model": model_name, "error": str(e)}
+            }
+
+    def ensemble_predict(self, symbol: str, context: Dict = None) -> Dict[str, Any]:
+        """
+        Ensemble prediction across all loaded models.
+        Uses majority voting weighted by model accuracy.
+        """
+        if not self._models:
+            return self.predict(symbol, context)
+
+        votes = []
+        for model_name in self._models:
+            result = self.predict(symbol, context, model_name=model_name)
+            accuracy = MODEL_REGISTRY.get(model_name, {}).get("accuracy", 0.5)
+            if isinstance(accuracy, str):
+                accuracy = 0.5
+            votes.append({
+                "model": model_name,
+                "recommendation": result["recommendation"],
+                "confidence": result["confidence"],
+                "weight": accuracy,
+            })
+
+        # Weighted voting
+        direction_scores = {"BUY": 0, "SELL": 0, "HOLD": 0}
+        total_weight = 0
+        for vote in votes:
+            direction_scores[vote["recommendation"]] += vote["weight"] * vote["confidence"]
+            total_weight += vote["weight"]
+
+        if total_weight > 0:
+            for k in direction_scores:
+                direction_scores[k] /= total_weight
+
+        best_action = max(direction_scores, key=direction_scores.get)
+        best_confidence = direction_scores[best_action]
+
+        return {
+            "recommendation": best_action,
+            "confidence": best_confidence,
+            "reasoning": f"Ensemble ({len(votes)} models): {best_action} "
+                         f"(confidence: {best_confidence:.2%})",
+            "metadata": {
+                "votes": votes,
+                "direction_scores": direction_scores,
+                "models_used": len(votes),
+            }
+        }
+
+    # Brain-compatible interface
     def analyze(self, symbol: str, context: Dict = None) -> Dict:
-        """Brain-compatible alias."""
+        """Brain-compatible: uses ensemble if multiple models loaded."""
+        if len(self._models) > 1:
+            return self.ensemble_predict(symbol, context)
         return self.predict(symbol, context)
+
+    def cleanup(self):
+        """Release memory."""
+        self._models.clear()
+        self._scalers.clear()
+        self._initialized = False
+        gc.collect()
+        logger.info("ML Signal Engine cleanup complete")
+
+
+# ============================================================
+# STANDALONE TEST
+# ============================================================
+
+if __name__ == "__main__":
+    import sys
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)-8s | %(message)s',
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+
+    print("\n" + "=" * 60)
+    print("ML SIGNAL ENGINE — Model Registry Test")
+    print("=" * 60)
+
+    engine = MLSignalEngine()
+
+    # List all models
+    print("\n📋 Model Registry:")
+    for name, info in engine.list_models().items():
+        status = "✅ EXISTS" if info["path_exists"] else "❌ MISSING"
+        loaded = " [LOADED]" if info["loaded"] else ""
+        print(f"  {name}: acc={info['accuracy']} — {status}{loaded}")
+        print(f"    {info['notes']}")
+
+    # Try to load catboost_v2
+    print("\n" + "-" * 60)
+    print("Loading catboost_v2...")
+    if engine.load_model("catboost_v2"):
+        print("✅ Model loaded successfully")
+    else:
+        print("⚠️ Could not load — trying catboost_clean_75...")
+        engine.load_model("catboost_clean_75")
+
+    print("\n✅ Test complete")
+    engine.cleanup()

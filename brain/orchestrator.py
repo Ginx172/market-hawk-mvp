@@ -1,7 +1,7 @@
 """
 SCRIPT NAME: orchestrator.py
 ====================================
-Execution Location: K:\_DEV_MVP_2026\Market_Hawk_3\brain\
+Execution Location: market-hawk-mvp/brain/
 Purpose: THE BRAIN — Central Orchestrator for Multi-Agent Trading System
 Hardware Optimization: Intel i7-9700F, NVIDIA GTX 1070 8GB VRAM, 64GB DDR4
 Creation Date: 2026-03-01
