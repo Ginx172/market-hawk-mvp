@@ -1,0 +1,159 @@
+"""
+SCRIPT NAME: settings.py
+====================================
+Execution Location: K:\_DEV_MVP_2026\Market_Hawk_3\config\
+Purpose: Global configuration for Market Hawk MVP
+Hardware Optimization: Intel i7-9700F, NVIDIA GTX 1070 8GB VRAM, 64GB DDR4
+"""
+
+import os
+from pathlib import Path
+from dataclasses import dataclass, field
+from typing import Dict, Optional
+
+# ============================================================
+# PATH CONFIGURATION
+# ============================================================
+
+PROJECT_ROOT = Path(__file__).parent.parent
+CONFIG_DIR = PROJECT_ROOT / "config"
+MODELS_DIR = PROJECT_ROOT / "models"
+KNOWLEDGE_BASE_DIR = PROJECT_ROOT / "knowledge_base"
+LOGS_DIR = PROJECT_ROOT / "logs"
+DATA_DIR = PROJECT_ROOT / "data"
+
+# ============================================================
+# LOCAL DATA PATHS (Gigi's machine)
+# ============================================================
+
+LOCAL_DATA_PATHS = {
+    "trading_documents": r"J:\E-Books\Trading Database",
+    "mm_dataset": r"C:\_AI\Market_Hawk\_mm_dataset",
+    "mm_image_kit": r"C:\_AI\Market_Hawk\_mm_image_kit",
+    "mm_pair_dataset": r"C:\_AI\Market_Hawk\_mm_pair_dataset",
+    "datasets": r"C:\_AI\Market_Hawk\datasets",
+    "market_hawk_v2": r"C:\_AI\Market_Hawk_2",
+}
+
+
+# ============================================================
+# HARDWARE PROFILE
+# ============================================================
+
+@dataclass
+class HardwareProfile:
+    """Hardware optimization settings for i7-9700F + GTX 1070 + 64GB DDR4."""
+    cpu_name: str = "Intel i7-9700F"
+    cpu_cores: int = 8
+    gpu_name: str = "NVIDIA GTX 1070"
+    gpu_vram_gb: int = 8
+    ram_gb: int = 64
+    ram_type: str = "DDR4-2666"
+    # Derived optimization settings
+    num_workers: int = 6          # cpu_cores - 2
+    batch_size: int = 32          # Safe default for 8GB VRAM
+    mixed_precision: bool = True
+    gradient_checkpointing: bool = True
+    chunk_size_mb: int = 512
+    max_gpu_memory_fraction: float = 0.85
+    prefetch_factor: int = 2
+
+
+HARDWARE = HardwareProfile()
+
+
+# ============================================================
+# AGENT CONFIGURATION
+# ============================================================
+
+@dataclass
+class AgentConfig:
+    """Configuration for each agent in the multi-agent system."""
+    name: str
+    weight: float
+    enabled: bool = True
+    timeout_seconds: int = 30
+
+
+AGENT_CONFIGS: Dict[str, AgentConfig] = {
+    "ml_signal_engine": AgentConfig(name="ML Signal Engine", weight=0.35),
+    "knowledge_advisor": AgentConfig(name="Knowledge Advisor", weight=0.25),
+    "risk_manager": AgentConfig(name="Risk Manager", weight=0.20),
+    "news_analyzer": AgentConfig(name="News Analyzer", weight=0.15),
+    "security_guard": AgentConfig(name="Security Guard", weight=0.05),
+}
+
+CONSENSUS_THRESHOLD = 0.60
+
+
+# ============================================================
+# KNOWLEDGE ADVISOR CONFIG
+# ============================================================
+
+@dataclass
+class RAGConfig:
+    """Configuration for the Knowledge Advisor RAG system."""
+    chromadb_path: str = str(KNOWLEDGE_BASE_DIR / "chromadb")
+    collection_name: str = "trading_knowledge_v2"
+    embedding_model: str = "all-MiniLM-L6-v2"
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
+    n_results: int = 5
+    mmr_lambda: float = 0.3
+
+
+RAG_CONFIG = RAGConfig()
+
+
+# ============================================================
+# ML MODEL CONFIG
+# ============================================================
+
+@dataclass
+class MLConfig:
+    """Configuration for the ML Signal Engine."""
+    model_path: str = str(MODELS_DIR / "trained" / "catboost_best.cbm")
+    confidence_threshold: float = 0.65
+    features_version: str = "v2"
+    supported_timeframes: list = field(default_factory=lambda: ["1h", "4h", "1d"])
+
+
+ML_CONFIG = MLConfig()
+
+
+# ============================================================
+# RISK MANAGEMENT CONFIG
+# ============================================================
+
+@dataclass
+class RiskConfig:
+    """Configuration for the Risk Manager."""
+    max_position_pct: float = 0.02      # Max 2% per trade
+    max_portfolio_risk: float = 0.06    # Max 6% total risk
+    max_drawdown_pct: float = 0.15      # 15% max drawdown trigger
+    kelly_fraction: float = 0.25        # Quarter-Kelly for safety
+    max_correlated_positions: int = 3
+    default_stop_loss_pct: float = 0.02
+    default_take_profit_pct: float = 0.04
+
+
+RISK_CONFIG = RiskConfig()
+
+
+# ============================================================
+# LOGGING CONFIG
+# ============================================================
+
+LOG_FORMAT = "%(asctime)s | %(name)-20s | %(levelname)-8s | %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+LOG_FILE = LOGS_DIR / "market_hawk.log"
+DECISION_LOG = LOGS_DIR / "decisions.jsonl"
+
+
+# ============================================================
+# API KEYS (from .env)
+# ============================================================
+
+def get_api_key(key_name: str) -> Optional[str]:
+    """Safely retrieve API key from environment."""
+    return os.environ.get(key_name)

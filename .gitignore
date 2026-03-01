@@ -1,0 +1,54 @@
+# Market Hawk MVP — .gitignore
+
+# Environment
+.env
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ML Models (too large for git)
+models/trained/*.cbm
+models/trained/*.pkl
+models/trained/*.pt
+models/trained/*.onnx
+
+# Knowledge Base (too large for git)
+knowledge_base/chromadb/*
+
+# Logs
+logs/*.log
+logs/*.jsonl
+
+# Data files
+*.csv
+*.parquet
+*.h5
+*.hdf5
+
+# Archives
+*.tar.gz
+*.zip
+*.7z
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Jupyter
+.ipynb_checkpoints/
