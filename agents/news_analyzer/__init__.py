@@ -1,1 +1,1 @@
-"""Market Hawk MVP — news_analyzer module. (TODO: Phase 5)"""
+from .news_sentiment import NewsAnalyzer

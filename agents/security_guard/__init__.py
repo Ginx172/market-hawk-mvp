@@ -1,1 +1,1 @@
-"""Market Hawk MVP — security_guard module. (TODO: Phase 5)"""
+from .anomaly_detector import SecurityGuard

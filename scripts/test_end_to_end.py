@@ -1,8 +1,6 @@
 """
-MARKET HAWK MVP — END-TO-END TEST: Live Data -> Features -> ML Prediction -> Brain Decision
+MARKET HAWK MVP — FULL END-TO-END: 5 Agents + Live Data + Brain Decision
 Run from: K:\\_DEV_MVP_2026\\Market_Hawk_3\\
-
-This is the FIRST real decision with live market data!
 
 Usage:
     python scripts/test_end_to_end.py
@@ -28,91 +26,94 @@ for noisy in ["httpx", "httpcore", "chromadb", "urllib3", "yfinance", "peewee"]:
 
 async def main():
     print("\n" + "=" * 70)
-    print("  🦅 MARKET HAWK MVP — FIRST END-TO-END LIVE DECISION")
+    print("  🦅 MARKET HAWK MVP — FULL 5-AGENT LIVE DECISION")
     print("=" * 70)
 
     # ================================================================
-    # 1. INITIALIZE ALL COMPONENTS
+    # INITIALIZE ALL 5 AGENTS + BRAIN
     # ================================================================
-    print("\n[1/5] Initializing Brain...")
+    print("\n[1/6] Initializing Brain...")
     from brain.orchestrator import Brain
     brain = Brain()
 
-    print("\n[2/5] Initializing Knowledge Advisor...")
+    print("\n[2/6] Knowledge Advisor (140K chunks RAG)...")
     from agents.knowledge_advisor.rag_engine import KnowledgeAdvisor
     advisor = KnowledgeAdvisor()
     if advisor.initialize():
         brain.register_agent("knowledge_advisor", advisor)
     else:
-        print("  ⚠️  Advisor failed — continuing without it")
+        print("  ⚠️  Advisor failed")
 
-    print("\n[3/5] Initializing ML Signal Engine...")
+    print("\n[3/6] ML Signal Engine (CatBoost ensemble)...")
     from agents.ml_signal_engine.catboost_predictor import MLSignalEngine
     ml_engine = MLSignalEngine()
-    # Load multiple models for ensemble
     models_loaded = 0
     for model_name in ["catboost_v2", "catboost_clean_75"]:
         if ml_engine.load_model(model_name):
             models_loaded += 1
     if models_loaded > 0:
         brain.register_agent("ml_signal_engine", ml_engine)
-    else:
-        print("  ⚠️  No ML models loaded")
 
-    print("\n[4/5] Initializing Risk Manager...")
-    from agents.risk_manager.kelly_criterion import RiskManager
-    brain.register_agent("risk_manager", RiskManager())
+    print("\n[4/6] News Analyzer (sentiment)...")
+    from agents.news_analyzer.news_sentiment import NewsAnalyzer
+    news = NewsAnalyzer(use_llm=False)  # Keyword mode for speed
+    brain.register_agent("news_analyzer", news)
 
-    print("\n[5/5] Initializing Data Pipeline...")
+    print("\n[5/6] Security Guard (anomaly detection)...")
+    from agents.security_guard.anomaly_detector import SecurityGuard
+    guard = SecurityGuard()
+    brain.register_agent("security_guard", guard)
+
+    print("\n[6/6] Data Pipeline...")
     from data.market_data_fetcher import MarketDataFetcher, get_symbol_category
     fetcher = MarketDataFetcher()
 
     # ================================================================
-    # LIVE DECISIONS
+    # LIVE DECISIONS — ALL AGENTS VOTING
     # ================================================================
-    test_symbols = ["AAPL", "BTCUSDT", "NVDA", "GOLD"]
+    test_symbols = ["AAPL", "BTCUSDT", "NVDA", "GOLD", "MSFT"]
 
     print("\n" + "=" * 70)
-    print("  📊 LIVE TRADING DECISIONS")
+    print("  📊 LIVE TRADING DECISIONS — 5 AGENTS")
     print("=" * 70)
+
+    decisions_summary = []
 
     for symbol in test_symbols:
         print(f"\n{'━' * 70}")
         print(f"  🎯 {symbol} ({get_symbol_category(symbol)})")
         print(f"{'━' * 70}")
 
-        # Fetch live data + engineer features
+        # Fetch live data + features
         features_df = fetcher.fetch_and_engineer(symbol)
         if features_df is None or features_df.empty:
-            print(f"  ❌ No data available for {symbol}")
+            print(f"  ❌ No data for {symbol}")
             continue
 
         latest_features = fetcher.get_latest_features(symbol)
         if latest_features is None:
-            print(f"  ❌ Could not compute features for {symbol}")
+            print(f"  ❌ No features for {symbol}")
             continue
 
         last_close = features_df["Close"].iloc[-1]
-        print(f"  Last Close: ${last_close:,.2f}")
-        print(f"  Data points: {len(features_df)}")
-        print(f"  Features: {len(latest_features)} values")
+        print(f"  Price: ${last_close:,.2f} | Data: {len(features_df)} candles | Features: {len(latest_features)}")
 
-        # Brain decision with REAL features
+        # Brain decision with ALL context
         decision = await brain.decide(symbol, {
             "timeframe": "1h",
             "features": latest_features.tolist(),
+            "features_df": features_df,  # For Security Guard
         })
 
-        # Display decision
+        # Display
         action_emoji = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}.get(decision.action, "❓")
         print(f"\n  {action_emoji} DECISION: {decision.action}")
-        print(f"  Consensus:  {decision.consensus_score:+.4f}")
+        print(f"  Consensus:  {decision.consensus_score:+.4f} (threshold: 0.60)")
         print(f"  Approved:   {decision.approved}")
 
         if decision.position_size:
-            print(f"  Position:   {decision.position_size:.4%} of portfolio")
+            print(f"  Position:   {decision.position_size:.4%}")
             print(f"  Stop Loss:  {decision.stop_loss:.2%}")
-            print(f"  Take Profit: {decision.take_profit:.2%}")
 
         if decision.agent_votes:
             print(f"\n  Agent Votes:")
@@ -121,23 +122,37 @@ async def main():
                     vote['recommendation'], "❓")
                 print(f"    {v_emoji} {vote['agent_name']:25s} | "
                       f"{vote['recommendation']:4s} | "
-                      f"conf={vote['confidence']:.2f}")
+                      f"conf={vote['confidence']:.2f} | "
+                      f"{vote['reasoning'][:70]}")
+
+        decisions_summary.append({
+            "symbol": symbol,
+            "price": last_close,
+            "action": decision.action,
+            "consensus": decision.consensus_score,
+        })
 
     # ================================================================
-    # SUMMARY
+    # SUMMARY TABLE
     # ================================================================
     print(f"\n{'=' * 70}")
-    print(f"  📋 SESSION SUMMARY")
+    print(f"  📋 DECISION SUMMARY")
     print(f"{'=' * 70}")
-    print(f"  Agents: {len(brain.agents)}")
-    print(f"  Symbols analyzed: {len(test_symbols)}")
-    print(f"  ML Models loaded: {models_loaded}")
-    print(f"  Knowledge base: {advisor.get_stats().get('total_chunks', 'N/A'):,} chunks")
+    print(f"  {'Symbol':<10} {'Price':>12} {'Action':<8} {'Consensus':>10}")
+    print(f"  {'─'*10} {'─'*12} {'─'*8} {'─'*10}")
+    for d in decisions_summary:
+        emoji = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}.get(d["action"], "❓")
+        print(f"  {d['symbol']:<10} ${d['price']:>10,.2f} {emoji}{d['action']:<7} {d['consensus']:>+10.4f}")
+
+    print(f"\n  Agents: {len(brain.agents)} | ML Models: {models_loaded}")
     print(f"  Decision log: {brain.decision_log_path}")
     print(f"{'=' * 70}")
 
+    # Cleanup
     advisor.cleanup()
     ml_engine.cleanup()
+    news.cleanup()
+    guard.cleanup()
 
 
 if __name__ == "__main__":
