@@ -171,7 +171,15 @@ class MLSignalEngine:
                 model.load_model(str(model_path))
             elif entry["type"] == "pickle":
                 with open(model_path, "rb") as f:
-                    model = pickle.load(f)
+                    obj = pickle.load(f)
+                # Handle dict-wrapped models (e.g., {'model': CatBoostClassifier, 'features': [...]})
+                if isinstance(obj, dict) and 'model' in obj:
+                    model = obj['model']
+                    logger.info("  Unwrapped dict model: %s (features: %d)",
+                                 type(model).__name__,
+                                 len(obj.get('features', [])))
+                else:
+                    model = obj
             else:
                 logger.error("Unknown model type: %s", entry["type"])
                 return False
@@ -253,7 +261,23 @@ class MLSignalEngine:
 
         try:
             import numpy as np
-            features = np.array(context["features"]).reshape(1, -1)
+            import pandas as pd
+            features_raw = np.array(context["features"]).reshape(1, -1)
+
+            # CatBoost native models need DataFrame with column names
+            if hasattr(model, 'feature_names_') and model.feature_names_:
+                feature_names = model.feature_names_
+                # Trim or pad features to match model expectations
+                n_expected = len(feature_names)
+                if features_raw.shape[1] >= n_expected:
+                    features_raw = features_raw[:, :n_expected]
+                else:
+                    # Pad with zeros
+                    pad = np.zeros((1, n_expected - features_raw.shape[1]))
+                    features_raw = np.concatenate([features_raw, pad], axis=1)
+                features = pd.DataFrame(features_raw, columns=feature_names)
+            else:
+                features = features_raw
 
             # Apply scaler if available
             if scaler is not None:
