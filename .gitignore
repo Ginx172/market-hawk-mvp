@@ -27,6 +27,9 @@ knowledge_base/chromadb/*
 # Logs
 logs/*.log
 logs/*.jsonl
+logs/alerts/
+logs/scan_index_cache.json
+logs/backtest_reports/
 
 # Data files
 *.csv
