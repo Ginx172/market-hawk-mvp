@@ -13,6 +13,7 @@ Usage:
 
 import sys
 import json
+import time
 import asyncio
 from pathlib import Path
 from datetime import datetime
@@ -136,12 +137,13 @@ st.sidebar.markdown("---")
 
 page = st.sidebar.radio("Navigation", [
     "📊 Live Scanner",
+    "💫 Live Ticker",
     "📈 Live Chart",
     "⚡ Quick Trade",
     "💰 Portfolio",
     "📜 Decision Log",
     "🤖 Agent Status",
-])
+], key="nav_radio")
 
 WATCHLIST = st.sidebar.multiselect(
     "Watchlist",
@@ -537,13 +539,137 @@ Take Profit: 4% default
 
 
 # ============================================================
+# PAGE: LIVE TICKER (EKG-style)
+# ============================================================
+
+def page_live_ticker():
+    st.title("💫 Live Ticker")
+
+    from live_ticker import build_live_chart, build_multi_ticker, fetch_live_data
+
+    brain, fetcher = init_system()
+
+    # Controls
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    with col1:
+        symbol = st.selectbox("Asset", [
+            "AAPL", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "TSLA",
+            "AMD", "NFLX", "CRM",
+            "BTCUSDT", "ETHUSDT",
+            "GOLD", "SILVER",
+            "SPY", "QQQ",
+        ], key="ticker_symbol")
+    with col2:
+        timeframe = st.selectbox("Timeframe", [
+            "1m", "2m", "5m", "15m", "30m", "1h", "4h", "1d",
+        ], index=2, key="ticker_tf")
+    with col3:
+        period_map = {
+            "1m": "1d", "2m": "1d", "5m": "5d", "15m": "5d",
+            "30m": "10d", "1h": "30d", "4h": "60d", "1d": "6mo",
+        }
+        period = period_map.get(timeframe, "5d")
+        chart_style = st.selectbox("Style", [
+            "line", "candle", "area",
+        ], index=0, key="ticker_style")
+    with col4:
+        auto_refresh = st.selectbox("Auto-refresh", [
+            "Off", "10s", "30s", "60s",
+        ], index=0, key="ticker_refresh")
+
+    # Options row
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        show_volume = st.checkbox("Volume", value=True, key="ticker_vol")
+    with col2:
+        show_ma = st.checkbox("Moving Averages", value=True, key="ticker_ma")
+    with col3:
+        show_band = st.checkbox("High/Low Band", value=True, key="ticker_band")
+
+    # Fetch and display
+    with st.spinner(f"Loading {symbol} ({timeframe})..."):
+        df = fetch_live_data(fetcher, symbol, period=period, interval=timeframe)
+
+    if df is None or df.empty:
+        st.error(f"No data for {symbol} at {timeframe} interval")
+        return
+
+    # Price bar
+    last_price = float(df["Close"].iloc[-1])
+    prev_price = float(df["Close"].iloc[-2]) if len(df) > 1 else last_price
+    change = last_price - prev_price
+    change_pct = change / prev_price * 100 if prev_price > 0 else 0
+    day_high = float(df["High"].max())
+    day_low = float(df["Low"].min())
+    avg_vol = int(df["Volume"].astype(float).mean())
+
+    color = "#00d26a" if change >= 0 else "#ff4757"
+
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,#1a1f2e,#141824);'
+        f'border:1px solid #2d3548;border-radius:12px;padding:15px 25px;'
+        f'display:flex;align-items:center;gap:30px;margin-bottom:10px;">'
+        f'<span style="font-size:2.2em;font-weight:bold;color:white;">{symbol}</span>'
+        f'<span style="font-size:2.2em;font-weight:bold;color:{color};">${last_price:,.2f}</span>'
+        f'<span style="font-size:1.2em;color:{color};">{change:+,.2f} ({change_pct:+.2f}%)</span>'
+        f'<span style="color:#888;font-size:0.9em;">'
+        f'H: ${day_high:,.2f} | L: ${day_low:,.2f} | Avg Vol: {avg_vol:,}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Build EKG chart
+    fig = build_live_chart(
+        df, symbol,
+        chart_style=chart_style,
+        show_volume=show_volume,
+        show_ma=show_ma,
+        show_bid_ask=show_band,
+    )
+    st.plotly_chart(fig, use_container_width=True, key="live_chart_main")
+
+    # Auto-refresh
+    if auto_refresh != "Off":
+        seconds = {"10s": 10, "30s": 30, "60s": 60}[auto_refresh]
+        import streamlit.components.v1 as components
+        components.html(
+            f'<script>setTimeout(function(){{'
+            f'window.parent.document.querySelector("[data-testid=\'stApp\']").__streamlit_connection.send("rerun");'
+            f'}}, {seconds * 1000});</script>'
+            f'<div style="color:#666;font-size:12px;">🔄 Auto-refresh: {auto_refresh}</div>',
+            height=25,
+        )
+        # Fallback — Streamlit native auto-rerun
+        time.sleep(0.1)
+        st.rerun() if st.session_state.get("_ticker_rerun") else None
+
+    # Multi-asset mini grid
+    st.markdown("---")
+    st.subheader("📊 Market Overview")
+
+    overview_symbols = st.multiselect(
+        "Assets to monitor",
+        ["AAPL", "NVDA", "MSFT", "GOOGL", "AMZN", "META", "TSLA",
+         "BTCUSDT", "ETHUSDT", "GOLD", "SILVER", "SPY", "QQQ"],
+        default=["AAPL", "NVDA", "BTCUSDT", "GOLD", "SPY", "TSLA"],
+        key="overview_symbols",
+    )
+
+    if overview_symbols:
+        with st.spinner("Loading market overview..."):
+            multi_fig = build_multi_ticker(fetcher, overview_symbols,
+                                           period="1d", interval="5m")
+        st.plotly_chart(multi_fig, use_container_width=True, key="multi_ticker")
+
+
+# ============================================================
 # PAGE: LIVE CHART
 # ============================================================
 
 def page_live_chart():
     st.title("📈 Live Chart & Technical Analysis")
 
-    from dashboard.chart_engine import build_chart
+    from chart_engine import build_chart
 
     brain, fetcher = init_system()
 
@@ -571,7 +697,7 @@ def page_live_chart():
     )
 
     chart_type = st.radio("Chart Type", ["candlestick", "line"],
-                          horizontal=True, label_visibility="collapsed")
+                          horizontal=True, label_visibility="collapsed", key="chart_type")
 
     # Fetch data
     with st.spinner(f"Loading {symbol}..."):
@@ -634,7 +760,7 @@ def page_live_chart():
 def page_quick_trade():
     st.title("⚡ Quick Trade Panel")
 
-    from dashboard.chart_engine import build_chart
+    from chart_engine import build_chart
 
     brain, fetcher = init_system()
 
@@ -819,6 +945,8 @@ def page_quick_trade():
 
 if page == "📊 Live Scanner":
     page_live_scanner()
+elif page == "💫 Live Ticker":
+    page_live_ticker()
 elif page == "📈 Live Chart":
     page_live_chart()
 elif page == "⚡ Quick Trade":

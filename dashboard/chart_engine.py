@@ -148,7 +148,7 @@ def build_chart(df: pd.DataFrame, symbol: str,
     )
 
     close = df["Close"].astype(float)
-    x = df.index if isinstance(df.index, pd.DatetimeIndex) else range(len(df))
+    x = df.index if isinstance(df.index, pd.DatetimeIndex) else list(range(len(df)))
 
     # --- Main chart ---
     if chart_type == "candlestick":
