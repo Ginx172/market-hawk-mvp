@@ -1,0 +1,12 @@
+{
+  "saved_at": "2026-03-01T10:15:40.340209",
+  "cash": 100000.0,
+  "initial_capital": 100000.0,
+  "peak_equity": 100000.0,
+  "total_scans": 1,
+  "total_signals": 0,
+  "positions": {},
+  "closed_trades_count": 0,
+  "realized_pnl": 0,
+  "win_rate": 0.0
+}

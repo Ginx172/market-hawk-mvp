@@ -225,6 +225,6 @@ class Brain:
         try:
             self.decision_log_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.decision_log_path, "a") as f:
-                f.write(json.dumps(asdict(decision)) + "\n")
+                f.write(json.dumps(asdict(decision), default=str) + "\n")
         except Exception as e:
             logger.error("Failed to log decision: %s", str(e))
