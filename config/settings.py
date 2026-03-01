@@ -1,9 +1,10 @@
 """
 SCRIPT NAME: settings.py
 ====================================
-Execution Location: K:\_DEV_MVP_2026\Market_Hawk_3\config\
+Execution Location: K:\\_DEV_MVP_2026\\Market_Hawk_3\\config\\
 Purpose: Global configuration for Market Hawk MVP
 Hardware Optimization: Intel i7-9700F, NVIDIA GTX 1070 8GB VRAM, 64GB DDR4
+Last Modified: 2026-03-01
 """
 
 import os
@@ -34,6 +35,12 @@ LOCAL_DATA_PATHS = {
     "datasets": r"C:\_AI\Market_Hawk\datasets",
     "market_hawk_v2": r"C:\_AI\Market_Hawk_2",
 }
+
+# ============================================================
+# EXISTING CHROMADB (from previous work)
+# ============================================================
+
+EXISTING_CHROMADB_PATH = r"K:\_DEV_MVP_2026\Agent_Trading_AI\AgentTradingAI\baza_date_vectoriala_v2"
 
 
 # ============================================================
@@ -76,14 +83,29 @@ class AgentConfig:
 
 
 AGENT_CONFIGS: Dict[str, AgentConfig] = {
-    "ml_signal_engine": AgentConfig(name="ML Signal Engine", weight=0.35),
-    "knowledge_advisor": AgentConfig(name="Knowledge Advisor", weight=0.25),
-    "risk_manager": AgentConfig(name="Risk Manager", weight=0.20),
-    "news_analyzer": AgentConfig(name="News Analyzer", weight=0.15),
-    "security_guard": AgentConfig(name="Security Guard", weight=0.05),
+    "ml_signal_engine": AgentConfig(
+        name="ML Signal Engine",
+        weight=0.35,
+    ),
+    "knowledge_advisor": AgentConfig(
+        name="Knowledge Advisor",
+        weight=0.25,
+    ),
+    "risk_manager": AgentConfig(
+        name="Risk Manager",
+        weight=0.20,
+    ),
+    "news_analyzer": AgentConfig(
+        name="News Analyzer",
+        weight=0.15,
+    ),
+    "security_guard": AgentConfig(
+        name="Security Guard",
+        weight=0.05,
+    ),
 }
 
-CONSENSUS_THRESHOLD = 0.60
+CONSENSUS_THRESHOLD = 0.60  # Minimum weighted consensus to execute
 
 
 # ============================================================
@@ -93,13 +115,19 @@ CONSENSUS_THRESHOLD = 0.60
 @dataclass
 class RAGConfig:
     """Configuration for the Knowledge Advisor RAG system."""
-    chromadb_path: str = str(KNOWLEDGE_BASE_DIR / "chromadb")
-    collection_name: str = "trading_knowledge_v2"
-    embedding_model: str = "all-MiniLM-L6-v2"
+    # Points to EXISTING ChromaDB v2 (130K+ chunks, 1GB)
+    chromadb_path: str = EXISTING_CHROMADB_PATH
+    collection_name: str = "algo_trading"
+    embedding_model: str = "nomic-embed-text"
     chunk_size: int = 1000
     chunk_overlap: int = 200
-    n_results: int = 5
-    mmr_lambda: float = 0.3
+    n_results: int = 15
+    fetch_k: int = 60
+    mmr_lambda: float = 0.7       # 0.7 = balance relevance vs diversity
+    retrieval_type: str = "mmr"   # Maximum Marginal Relevance
+    # LLM for response generation
+    llm_model: str = "qwen3:8b"
+    ollama_host: str = "http://localhost:11434"
 
 
 RAG_CONFIG = RAGConfig()
@@ -128,8 +156,8 @@ ML_CONFIG = MLConfig()
 @dataclass
 class RiskConfig:
     """Configuration for the Risk Manager."""
-    max_position_pct: float = 0.02      # Max 2% per trade
-    max_portfolio_risk: float = 0.06    # Max 6% total risk
+    max_position_pct: float = 0.02      # Max 2% of portfolio per trade
+    max_portfolio_risk: float = 0.06    # Max 6% total portfolio risk
     max_drawdown_pct: float = 0.15      # 15% max drawdown trigger
     kelly_fraction: float = 0.25        # Quarter-Kelly for safety
     max_correlated_positions: int = 3
