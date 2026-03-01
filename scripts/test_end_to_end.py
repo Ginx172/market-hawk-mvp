@@ -56,7 +56,7 @@ async def main():
 
     print("\n[4/6] News Analyzer (sentiment)...")
     from agents.news_analyzer.news_sentiment import NewsAnalyzer
-    news = NewsAnalyzer(use_llm=False)  # Keyword mode for speed
+    news = NewsAnalyzer(use_llm=True)  # LLM sentiment via qwen3:8b
     brain.register_agent("news_analyzer", news)
 
     print("\n[5/6] Security Guard (anomaly detection)...")

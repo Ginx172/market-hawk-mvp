@@ -1,200 +1,220 @@
-# 🦅 Market Hawk MVP — AI Multi-Agent Trading System
+# 🦅 Market Hawk MVP
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status: MVP Development](https://img.shields.io/badge/Status-MVP%20Development-orange)]()
+**AI-Powered Multi-Agent Trading Intelligence System**
 
-## 🎯 Executive Summary
-
-**Market Hawk** is an AI-powered multi-agent trading system that combines:
-- **76.47% accuracy** walk-forward validated CatBoost model (47K samples)
-- **140K+ knowledge chunks** from 280+ trading books via RAG (ChromaDB)
-- **7 specialized AI agents** coordinated by a central "Brain" orchestrator
-- **200+ symbols** across 4 continents (US, UK, EU, Asia + Forex + Crypto)
-- **Smart Money Concepts** (Order Blocks, FVG, Liquidity Zones, BOS)
-- **Multimodal pipeline** (chart images + text analysis via LLaVA fine-tuning)
+Market Hawk is a production-grade algorithmic trading system that combines machine learning, natural language processing, and real-time market analysis through a coordinated multi-agent architecture. The system orchestrates 5 specialized AI agents through a central Brain to generate consensus-driven trading decisions.
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   THE BRAIN                         │
-│            (Central Orchestrator)                    │
-│       Weighted Consensus Decision Engine            │
-├─────────┬──────────┬──────────┬────────────────────┤
-│         │          │          │                      │
-▼         ▼          ▼          ▼                      ▼
-┌───────┐┌────────┐┌────────┐┌──────────┐┌──────────────┐
-│Knowledge││ML Signal││ Risk   ││ Security ││  Continuous  │
-│Advisor ││ Engine  ││Manager ││  Guard   ││  Learning    │
-│ (RAG)  ││(CatBoost)││(Kelly) ││(Cyber)  ││  Agent       │
-└───────┘└────────┘└────────┘└──────────┘└──────────────┘
-     │         │         │          │             │
-     ▼         ▼         ▼          ▼             ▼
-┌──────────────────────────────────────────────────────┐
-│              EXECUTOR + ACTIVITY LOGGER              │
-│         (Order Execution + Full Audit Trail)         │
-└──────────────────────────────────────────────────────┘
-     │
-     ▼
-┌──────────────────────────────────────────────────────┐
-│              STREAMLIT DASHBOARD (MVP)                │
-│   Live Signals │ P&L Curve │ RAG Chat │ Agent Log    │
-└──────────────────────────────────────────────────────┘
+                    ┌─────────────────────┐
+                    │    🧠 THE BRAIN     │
+                    │  Central Orchestrator│
+                    │  Weighted Consensus  │
+                    └──────────┬──────────┘
+                               │
+          ┌────────────┬───────┼───────┬────────────┐
+          │            │       │       │            │
+    ┌─────▼─────┐ ┌───▼───┐ ┌─▼──┐ ┌──▼──┐ ┌──────▼──────┐
+    │ Knowledge │ │  ML   │ │News│ │Sec. │ │    Risk     │
+    │  Advisor  │ │Signal │ │Ana.│ │Guard│ │   Manager   │
+    │  (RAG)    │ │Engine │ │    │ │     │ │  (Kelly)    │
+    └───────────┘ └───────┘ └────┘ └─────┘ └─────────────┘
+     140K chunks   CatBoost  LLM   Anomaly   Quarter-Kelly
+     320+ books    Ensemble  Sent.  Detect.   Position Size
 ```
 
----
+## Agents
 
-## 📁 Repository Structure
+| Agent | Role | Technology | Function |
+|-------|------|-----------|----------|
+| **Knowledge Advisor** | VOTER | ChromaDB + RAG + Ollama | Retrieves insights from 140,512 text chunks across 320+ trading books |
+| **ML Signal Engine** | VOTER | CatBoost Ensemble | 2-model ensemble generating BUY/SELL/HOLD signals from 60 technical features |
+| **News Analyzer** | VOTER | RSS + LLM Sentiment | Real-time news sentiment analysis using qwen3:8b via Ollama |
+| **Security Guard** | VOTER | Statistical Anomaly Detection | Detects volume spikes, price gaps, volatility explosions, spread anomalies |
+| **Risk Manager** | GATEKEEPER | Quarter-Kelly Criterion | Position sizing, stop-loss/take-profit, portfolio risk limits — can veto trades |
+
+## How It Works
+
+1. **Data Pipeline** fetches live OHLCV data via yfinance and engineers 60 technical features (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, OBV, session flags, etc.)
+
+2. **Brain** sends the market context to all voting agents simultaneously
+
+3. Each agent returns a recommendation (BUY/SELL/HOLD) with a confidence score
+
+4. **Brain** calculates weighted consensus:
+   - ML Signal Engine: 35% weight
+   - Knowledge Advisor: 25% weight
+   - Risk Manager: 20% weight
+   - News Analyzer: 15% weight
+   - Security Guard: 5% weight
+
+5. If consensus exceeds threshold (0.60), the **Risk Manager** gates the final decision with position sizing via Quarter-Kelly criterion
+
+6. All decisions are logged to JSONL audit trail for analysis
+
+## Paper Trading
+
+The system includes a fully automated paper trading loop:
+
+```bash
+# Single scan across 13 symbols
+python trading/paper_trader.py --once
+
+# Continuous hourly scanning
+python trading/paper_trader.py --interval 60
+
+# Check portfolio status
+python trading/paper_trader.py --status
+```
+
+**Watchlist**: AAPL, NVDA, MSFT, GOOGL, AMZN, META, TSLA, BTC, ETH, GOLD, SILVER, SPY, QQQ
+
+**Portfolio features**: $100K virtual capital, automatic stop-loss/take-profit, position tracking, win rate, drawdown monitoring, trade history logging.
+
+## ML Models
+
+Located in the external model repository, the system supports 9 trained models:
+
+| Model | Accuracy | Notes |
+|-------|----------|-------|
+| catboost_v2 (native .cbm) | Walk-forward TBD | Primary model, 300 iterations |
+| CatBoost CLEAN | 75.3% | Rebuilt without data leakage |
+| CatBoost ULTRA | 75.0% | Hyperparameter optimized |
+| CatBoost Commodities | 82% | Per-category specialist |
+| CatBoost Indices | 76% | Per-category specialist |
+| CatBoost Crypto | 56% | Needs improvement |
+
+All models use 56-60 features calculated from OHLCV data using standard technical analysis indicators.
+
+## Knowledge Base
+
+The Knowledge Advisor draws from a ChromaDB vector database containing:
+- **140,512 text chunks** from 320+ algorithmic trading documents
+- Sources include: quantitative finance textbooks, trading strategy guides, risk management literature, market microstructure research
+- Embedding model: nomic-embed-text
+- Retrieval: Maximum Marginal Relevance (k=15, fetch_k=60, λ=0.7)
+- LLM: qwen3:8b via Ollama for response generation
+
+## Project Structure
 
 ```
 Market_Hawk_3/
-├── README.md                    # This file
-├── ROADMAP.md                   # Development roadmap & priorities
-├── ARCHITECTURE.md              # Detailed system architecture
-├── INVESTOR_BRIEF.md            # Investor presentation summary
-├── requirements.txt             # Python dependencies
-├── .env.example                 # Environment variables template
-├── .gitignore                   # Git ignore rules
-├── LICENSE                      # MIT License
-│
-├── config/                      # Global configuration
-│   ├── settings.py              # All settings, paths, hardware profile
-│   └── agent_weights.py         # Agent voting weights
-│
-├── brain/                       # THE BRAIN — Central Orchestrator
-│   └── orchestrator.py          # Weighted consensus, audit trail
-│
-├── agents/                      # Specialized AI Agents
-│   ├── knowledge_advisor/       # RAG from 280+ trading books
-│   │   └── rag_engine.py        # ChromaDB + MMR retrieval
-│   ├── ml_signal_engine/        # CatBoost 76.47% model
-│   │   └── catboost_predictor.py
-│   ├── risk_manager/            # Kelly Criterion + position sizing
-│   │   └── kelly_criterion.py
-│   ├── security_guard/          # Multi-layer cybersecurity
-│   ├── continuous_learner/      # Self-improvement from history
-│   └── news_analyzer/           # Sentiment & event detection
-│
-├── executor/                    # Trade execution
-│   └── broker_adapters/         # ccxt, Alpaca adapters
-│
-├── data/                        # Data fetching & preprocessing
-├── dashboard/                   # Streamlit MVP dashboard
-│   ├── app.py                   # Main app (5 pages)
-│   ├── pages/                   # Individual page modules
-│   └── components/              # Reusable UI components
-│
-├── models/                      # ML model storage
-│   ├── trained/                 # Checkpoints (.cbm, .pkl)
-│   └── configs/                 # Hyperparameter configs
-│
-├── knowledge_base/              # RAG vector store
-│   ├── chromadb/                # ChromaDB persistence
-│   ├── documents/               # Source document index
-│   └── metadata/                # Document stats
-│
-├── logs/                        # Application & decision logs
-├── tests/                       # Test suite
-└── scripts/                     # Utility scripts
+├── brain/
+│   └── orchestrator.py          # Central Brain — consensus engine
+├── agents/
+│   ├── knowledge_advisor/
+│   │   └── rag_engine.py        # RAG with 140K chunks
+│   ├── ml_signal_engine/
+│   │   └── catboost_predictor.py # 9-model registry + ensemble
+│   ├── news_analyzer/
+│   │   └── news_sentiment.py    # RSS + LLM sentiment
+│   ├── risk_manager/
+│   │   └── kelly_criterion.py   # Quarter-Kelly position sizing
+│   └── security_guard/
+│       └── anomaly_detector.py  # Volume/price/volatility anomalies
+├── data/
+│   └── market_data_fetcher.py   # yfinance + 60-feature engineering
+├── trading/
+│   └── paper_trader.py          # Automated paper trading loop
+├── config/
+│   └── settings.py              # Global configuration
+├── scripts/
+│   ├── test_end_to_end.py       # Full 5-agent integration test
+│   └── test_brain_2agents.py    # Brain unit test
+└── logs/
+    ├── decisions.jsonl           # Brain decision audit trail
+    ├── paper_trades.jsonl        # Paper trading log
+    └── paper_portfolio.json      # Portfolio state (persistent)
 ```
 
----
+## Tech Stack
 
-## 🚀 Quick Start
+- **Python 3.12** — Core runtime
+- **CatBoost** — Gradient boosting ML models
+- **ChromaDB** — Vector database for knowledge retrieval
+- **LangChain** — RAG pipeline orchestration
+- **Ollama** — Local LLM inference (qwen3:8b)
+- **yfinance** — Live market data
+- **feedparser** — RSS news feeds
+- **NumPy / Pandas** — Feature engineering
+
+## Hardware Requirements
+
+Optimized for:
+- **CPU**: Intel i7-9700F (8 cores) or equivalent
+- **GPU**: NVIDIA GTX 1070 8GB VRAM (for local LLM inference)
+- **RAM**: 64GB DDR4
+- **Storage**: SSD recommended for ChromaDB performance
+
+## Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/Ginx172/Market_Hawk_3.git
-cd Market_Hawk_3
+# Clone and setup
+git clone https://github.com/Ginx172/market-hawk-mvp.git
+cd market-hawk-mvp
 
 # Create virtual environment
 python -m venv venv
 venv\Scripts\activate  # Windows
 
 # Install dependencies
-pip install -r requirements.txt
+pip install catboost chromadb langchain langchain-ollama
+pip install yfinance feedparser numpy pandas
 
-# Copy and configure environment variables
-copy .env.example .env
-# Edit .env with your API keys
+# Ensure Ollama is running with qwen3:8b
+ollama pull qwen3:8b
 
-# Run the dashboard
-streamlit run dashboard/app.py
+# Run full 5-agent test
+python scripts/test_end_to_end.py
+
+# Start paper trading
+python trading/paper_trader.py --once
 ```
 
----
+## Sample Output
 
-## 📊 Validated Results
+```
+🦅 MARKET HAWK MVP — FULL 5-AGENT LIVE DECISION
 
-| Metric | Value |
-|--------|-------|
-| Model Accuracy (Walk-Forward) | **76.47%** |
-| Validation Samples | 47,000 |
-| Asset Coverage | 200+ symbols |
-| Markets | US, UK, EU, Asia, Forex, Crypto |
-| Knowledge Base | 140K+ chunks from 280+ books |
-| Target Knowledge Base | 1,600+ documents (in progress) |
+  🎯 NVDA (tech_stocks)
+  Price: $177.16 | Data: 416 candles | Features: 60
 
----
+  ⚪ DECISION: HOLD
+  Consensus:  +0.3722 (threshold: 0.60)
 
-## 🔧 Hardware Optimization
+  Agent Votes:
+    ⚪ knowledge_advisor  | HOLD | conf=0.50
+    🟢 ml_signal_engine   | BUY  | conf=0.52
+    🟢 news_analyzer      | BUY  | conf=0.77
+    ⚪ security_guard     | HOLD | conf=0.00
 
-Optimized for:
-- **CPU**: Intel i7-9700F (8 cores)
-- **GPU**: NVIDIA GeForce GTX 1070 (8GB VRAM)
-- **RAM**: 64GB DDR4
+  🚨 SILVER [HIGH] price_gap: 3.50%
+  🚨 QQQ [MEDIUM] volume_spike: Z-score 4.2
+```
 
----
+## Roadmap
 
-## 📚 Knowledge Sources
+- [x] Brain Orchestrator with weighted consensus
+- [x] Knowledge Advisor (140K chunks RAG)
+- [x] ML Signal Engine (CatBoost ensemble)
+- [x] News Analyzer (RSS + LLM sentiment)
+- [x] Security Guard (anomaly detection)
+- [x] Risk Manager (Quarter-Kelly)
+- [x] Data Pipeline (60 features)
+- [x] Paper Trading Loop
+- [ ] Streamlit Dashboard
+- [ ] Walk-forward model validation
+- [ ] Backtesting engine
+- [ ] Live broker integration (IBKR/Alpaca)
+- [ ] Multi-timeframe analysis
 
-The Knowledge Advisor is built on a comprehensive trading library including:
-- Smart Money Concepts & Order Flow
-- Technical Analysis (classical + modern)
-- Trading Psychology & Risk Management
-- Quantitative Finance & Algorithmic Trading
-- Market Microstructure
-- Options & Derivatives strategies
+## License
 
----
+This project is proprietary software. All rights reserved.
 
-## 🗺️ Roadmap
+## Author
 
-See [ROADMAP.md](ROADMAP.md) for the full development plan.
-
-**Phase 1 (Current):** Module scaffolding + Knowledge Advisor integration
-**Phase 2:** ML Signal Engine + Brain Orchestrator
-**Phase 3:** Risk Manager + Paper Trading
-**Phase 4:** Dashboard MVP for investor demo
-**Phase 5:** Continuous Learning + Security hardening
-
----
-
-## 📋 Related Repositories (Legacy)
-
-This repository consolidates work from:
-- [market-hawk](https://github.com/Ginx172/market-hawk) — Original architecture & CatBoost model
-- [Live_trading_automated_AI_model](https://github.com/Ginx172/Live_trading_automated_AI_model) — Multimodal pipeline & CLI agent
-- [Ultimate_Trade_Agentic_RAG](https://github.com/Ginx172/Ultimate_Trade_Agentic_RAG) — Agentic RAG system
-
-**Educational references (forks):**
-- [Harvard-Algorithmic-Trading-with-AI](https://github.com/Ginx172/Harvard-Algorithmic-Trading-with-AI) — RBI methodology
-- [machine-learning-for-trading](https://github.com/Ginx172/machine-learning-for-trading) — Stefan Jansen's ML4Trading
-
----
-
-## 📄 License
-
-MIT License — See [LICENSE](LICENSE) for details.
-
----
-
-## 👤 Author
-
-**Gigi** — AI Trading Systems Developer
-- Background: Economics & Finance (Danubius University), Military Operations, NHS Healthcare
-- Trading experience: Since late 1990s (Bucharest Stock Exchange), Forex since 2016
-- Currently: Level 3 Data Science bootcamp + AI Trading R&D
+Developed as part of an AI-driven algorithmic trading research initiative, combining expertise in financial markets, machine learning, and multi-agent systems.

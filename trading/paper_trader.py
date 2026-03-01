@@ -206,9 +206,9 @@ class PaperTrader:
         if ml_engine._models:
             self.brain.register_agent("ml_signal_engine", ml_engine)
 
-        # News Analyzer
+        # News Analyzer (LLM sentiment via qwen3:8b)
         from agents.news_analyzer.news_sentiment import NewsAnalyzer
-        self.brain.register_agent("news_analyzer", NewsAnalyzer(use_llm=False))
+        self.brain.register_agent("news_analyzer", NewsAnalyzer(use_llm=True))
 
         # Security Guard
         from agents.security_guard.anomaly_detector import SecurityGuard
