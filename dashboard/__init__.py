@@ -1,1 +1,1 @@
-"""Market Hawk MVP — dashboard module."""
+from .app import *
