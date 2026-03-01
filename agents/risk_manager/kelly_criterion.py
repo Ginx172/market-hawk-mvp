@@ -1,7 +1,7 @@
 """
 SCRIPT NAME: kelly_criterion.py
 ====================================
-Execution Location: K:\_DEV_MVP_2026\Market_Hawk_3\agents\risk_manager\
+Execution Location: market-hawk-mvp/agents/risk_manager/
 Purpose: Risk Manager Agent — Kelly Criterion + Position Sizing
 Creation Date: 2026-03-01
 """

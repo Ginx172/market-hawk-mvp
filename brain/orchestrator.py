@@ -2,15 +2,14 @@
 SCRIPT NAME: orchestrator.py
 ====================================
 Execution Location: market-hawk-mvp/brain/
-Purpose: THE BRAIN — Central Orchestrator for Multi-Agent Trading System
+Purpose: THE BRAIN - Central Orchestrator for Multi-Agent Trading System
 Hardware Optimization: Intel i7-9700F, NVIDIA GTX 1070 8GB VRAM, 64GB DDR4
 Creation Date: 2026-03-01
-
-The Brain coordinates all agents, collects their recommendations,
-applies weighted consensus, and makes final trading decisions.
+Last Modified: 2026-03-01
 """
 
 import json
+import asyncio
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Any
@@ -20,16 +19,12 @@ from pathlib import Path
 logger = logging.getLogger("market_hawk.brain")
 
 
-# ============================================================
-# DATA STRUCTURES
-# ============================================================
-
 @dataclass
 class AgentResponse:
     """Response from an individual agent."""
     agent_name: str
-    recommendation: str          # BUY, SELL, HOLD
-    confidence: float            # 0.0 to 1.0
+    recommendation: str
+    confidence: float
     reasoning: str
     metadata: Dict[str, Any] = None
 
@@ -43,7 +38,7 @@ class BrainDecision:
     """Final decision made by the Brain."""
     timestamp: str
     symbol: str
-    action: str                  # BUY, SELL, HOLD
+    action: str
     consensus_score: float
     approved: bool
     position_size: Optional[float] = None
@@ -60,26 +55,21 @@ class BrainDecision:
             self.risk_check = {}
 
 
-# ============================================================
-# THE BRAIN
-# ============================================================
-
 class Brain:
     """
-    Central Orchestrator — THE BRAIN of Market Hawk.
+    Central Orchestrator - THE BRAIN of Market Hawk.
 
-    Coordinates specialized agents, collects their recommendations,
-    applies weighted consensus voting, and makes final trading decisions
-    with full audit trail.
-
-    Usage:
-        brain = Brain()
-        brain.register_agent("knowledge_advisor", advisor_instance)
-        brain.register_agent("ml_signal_engine", ml_engine_instance)
-        decision = await brain.decide("AAPL")
+    Coordinates specialized agents, applies weighted consensus voting,
+    and makes final trading decisions with full audit trail.
+    Risk Manager is treated specially - it gates decisions but doesn't vote.
     """
 
+    # Agents that DON'T participate in consensus voting
+    NON_VOTING_AGENTS = {"risk_manager"}
+
     def __init__(self, agent_configs: Dict = None, consensus_threshold: float = None):
+        import sys
+        sys.path.insert(0, str(Path(__file__).parent.parent))
         from config.settings import AGENT_CONFIGS, CONSENSUS_THRESHOLD, DECISION_LOG
 
         self.agent_configs = agent_configs or AGENT_CONFIGS
@@ -92,32 +82,36 @@ class Brain:
     def register_agent(self, agent_id: str, agent_instance: Any) -> None:
         """Register an agent with the Brain."""
         self.agents[agent_id] = agent_instance
-        logger.info("Agent registered: %s (total: %d)", agent_id, len(self.agents))
-
-    def unregister_agent(self, agent_id: str) -> None:
-        """Remove an agent from the Brain."""
-        if agent_id in self.agents:
-            del self.agents[agent_id]
-            logger.info("Agent unregistered: %s", agent_id)
+        role = "GATEKEEPER" if agent_id in self.NON_VOTING_AGENTS else "VOTER"
+        logger.info("Agent registered: %s [%s] (total: %d)", agent_id, role, len(self.agents))
 
     async def query_agents(self, symbol: str, context: Dict = None) -> List[AgentResponse]:
-        """Query all registered agents for their recommendations."""
+        """Query all VOTING agents for their recommendations."""
         responses = []
         context = context or {}
 
         for agent_id, agent in self.agents.items():
+            # Skip non-voting agents (risk_manager is called separately)
+            if agent_id in self.NON_VOTING_AGENTS:
+                continue
+
             try:
-                # Try different interfaces (agents may use different method names)
-                if hasattr(agent, 'analyze'):
-                    response = await agent.analyze(symbol, context) if asyncio_compat(agent.analyze) else agent.analyze(symbol, context)
-                elif hasattr(agent, 'predict'):
-                    response = agent.predict(symbol, context)
-                elif hasattr(agent, 'query'):
-                    response = agent.query(f"Trading analysis for {symbol}", context)
-                elif hasattr(agent, 'evaluate'):
-                    response = agent.evaluate({"symbol": symbol, **context})
-                else:
-                    logger.warning("Agent %s has no callable analysis method", agent_id)
+                response = None
+
+                # Try analyze() first, then predict(), then query()
+                for method_name in ["analyze", "predict", "query"]:
+                    method = getattr(agent, method_name, None)
+                    if method is None:
+                        continue
+
+                    if asyncio.iscoroutinefunction(method):
+                        response = await method(symbol, context)
+                    else:
+                        response = method(symbol, context)
+                    break
+
+                if response is None:
+                    logger.warning("Agent %s has no callable method", agent_id)
                     continue
 
                 if isinstance(response, AgentResponse):
@@ -144,8 +138,7 @@ class Brain:
 
     def calculate_consensus(self, responses: List[AgentResponse]) -> float:
         """
-        Calculate weighted consensus score.
-        Direction: BUY=+1, SELL=-1, HOLD=0
+        Weighted consensus: BUY=+1, SELL=-1, HOLD=0
         Returns score between -1.0 and 1.0
         """
         direction_map = {"BUY": 1.0, "SELL": -1.0, "HOLD": 0.0}
@@ -163,24 +156,23 @@ class Brain:
         return weighted_sum / total_weight if total_weight > 0 else 0.0
 
     async def decide(self, symbol: str, context: Dict = None) -> BrainDecision:
-        """
-        Full decision pipeline: Query agents → Consensus → Risk check → Log.
-        """
+        """Full pipeline: Query agents -> Consensus -> Risk check -> Log."""
         logger.info("=== BRAIN DECISION START: %s ===", symbol)
 
-        # 1. Query all agents
+        # 1. Query voting agents
         responses = await self.query_agents(symbol, context)
+        logger.info("Received %d agent votes", len(responses))
 
-        # 2. Calculate consensus
+        # 2. Consensus
         consensus = self.calculate_consensus(responses)
 
-        # 3. Determine action
+        # 3. Action
         if abs(consensus) >= self.consensus_threshold:
             action = "BUY" if consensus > 0 else "SELL"
         else:
             action = "HOLD"
 
-        # 4. Risk check
+        # 4. Risk Manager gate
         risk_check = {}
         approved = True
         position_size = stop_loss = take_profit = None
@@ -218,16 +210,15 @@ class Brain:
 
         logger.info("=== DECISION: %s %s (consensus=%.4f, approved=%s) ===",
                      decision.action, symbol, consensus, approved)
-
         return decision
 
     def _build_reasoning(self, responses, consensus, approved):
         parts = [f"Consensus: {consensus:.4f}"]
         for r in responses:
             parts.append(f"  {r.agent_name}: {r.recommendation} "
-                         f"(conf={r.confidence:.2f}) — {r.reasoning[:100]}")
+                         f"(conf={r.confidence:.2f})")
         if not approved:
-            parts.append("  ⚠️ BLOCKED by Risk Manager")
+            parts.append("  >>> BLOCKED by Risk Manager")
         return "\n".join(parts)
 
     def _log_decision(self, decision: BrainDecision) -> None:
@@ -237,9 +228,3 @@ class Brain:
                 f.write(json.dumps(asdict(decision)) + "\n")
         except Exception as e:
             logger.error("Failed to log decision: %s", str(e))
-
-
-def asyncio_compat(func):
-    """Check if a function is a coroutine."""
-    import asyncio
-    return asyncio.iscoroutinefunction(func)
