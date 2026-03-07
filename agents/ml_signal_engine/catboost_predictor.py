@@ -21,6 +21,9 @@ AVAILABLE MODELS (from G drive):
 """
 
 import gc
+import hashlib
+import hmac
+import json
 import logging
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass, field
@@ -79,6 +82,99 @@ def _is_trusted_path(file_path: Path) -> bool:
     if not is_trusted:
         logger.warning("Rejected untrusted path: %s (resolved: %s)", file_path, resolved)
     return is_trusted
+
+
+# ============================================================
+# SHA-256 HASH VERIFICATION
+# ============================================================
+
+_HASH_FILE = Path(__file__).parent.parent.parent / "models" / "model_hashes.json"
+
+
+def _compute_file_hash(path: Path) -> str:
+    """Compute SHA-256 hash of a file, reading in 8KB chunks for memory efficiency."""
+    sha256 = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(8192)
+            if not chunk:
+                break
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+
+def _verify_model_hash(model_name: str, model_path: Path) -> bool:
+    """Verify SHA-256 hash of a model file against stored hashes.
+
+    Returns True if hash matches or if no hash file/entry exists (backward compatible).
+    Returns False if hash mismatch (possible tampering).
+    """
+    if not _HASH_FILE.exists():
+        logger.warning("Hash file %s not found — skipping verification for %s "
+                       "(run --generate-hashes to create)", _HASH_FILE, model_name)
+        return True
+
+    try:
+        with open(_HASH_FILE, "r") as f:
+            hash_store = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to read hash file %s: %s — skipping verification", _HASH_FILE, e)
+        return True
+
+    if model_name not in hash_store:
+        logger.warning("No hash entry for model '%s' — skipping verification "
+                       "(run --generate-hashes to update)", model_name)
+        return True
+
+    expected_hash = hash_store[model_name].get("sha256", "")
+    if not expected_hash:
+        logger.warning("Empty hash for model '%s' — skipping verification", model_name)
+        return True
+
+    actual_hash = _compute_file_hash(model_path)
+
+    if hmac.compare_digest(actual_hash, expected_hash):
+        logger.info("Hash verified for %s", model_name)
+        return True
+
+    logger.error("HASH MISMATCH for model '%s': expected=%s, actual=%s — "
+                 "possible file tampering, refusing to load", model_name, expected_hash, actual_hash)
+    return False
+
+
+def generate_model_hashes() -> Dict[str, Dict[str, str]]:
+    """Scan MODEL_REGISTRY, compute SHA-256 hashes, and save to models/model_hashes.json."""
+    hash_store: Dict[str, Dict[str, str]] = {}
+
+    for name, entry in MODEL_REGISTRY.items():
+        model_path = Path(entry["path"])
+        if model_path.exists():
+            file_hash = _compute_file_hash(model_path)
+            hash_store[name] = {
+                "path": str(model_path),
+                "sha256": file_hash,
+            }
+            print(f"  {name}: {file_hash[:16]}... ({model_path.name})")
+
+            # Also hash scaler if present
+            if entry.get("scaler"):
+                scaler_path = Path(entry["scaler"])
+                if scaler_path.exists():
+                    scaler_hash = _compute_file_hash(scaler_path)
+                    hash_store[f"{name}__scaler"] = {
+                        "path": str(scaler_path),
+                        "sha256": scaler_hash,
+                    }
+                    print(f"  {name}__scaler: {scaler_hash[:16]}... ({scaler_path.name})")
+        else:
+            print(f"  {name}: SKIPPED (file not found: {model_path})")
+
+    _HASH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(_HASH_FILE, "w") as f:
+        json.dump(hash_store, f, indent=2)
+
+    print(f"\nSaved {len(hash_store)} hashes to {_HASH_FILE}")
+    return hash_store
 
 
 # ============================================================
@@ -213,6 +309,11 @@ class MLSignalEngine:
 
         if not model_path.exists():
             logger.error("Model file not found: %s", model_path)
+            return False
+
+        # SHA-256 hash verification before loading
+        if not _verify_model_hash(model_name, model_path):
+            logger.error("Refused to load model '%s' — hash verification failed", model_name)
             return False
 
         try:
@@ -457,6 +558,13 @@ if __name__ == "__main__":
         handlers=[logging.StreamHandler(sys.stdout)]
     )
 
+    if "--generate-hashes" in sys.argv:
+        print("\n" + "=" * 60)
+        print("ML SIGNAL ENGINE — Generate Model Hashes (SHA-256)")
+        print("=" * 60 + "\n")
+        generate_model_hashes()
+        sys.exit(0)
+
     print("\n" + "=" * 60)
     print("ML SIGNAL ENGINE — Model Registry Test")
     print("=" * 60)
@@ -464,21 +572,21 @@ if __name__ == "__main__":
     engine = MLSignalEngine()
 
     # List all models
-    print("\n📋 Model Registry:")
+    print("\nModel Registry:")
     for name, info in engine.list_models().items():
-        status = "✅ EXISTS" if info["path_exists"] else "❌ MISSING"
+        status = "EXISTS" if info["path_exists"] else "MISSING"
         loaded = " [LOADED]" if info["loaded"] else ""
-        print(f"  {name}: acc={info['accuracy']} — {status}{loaded}")
+        print(f"  {name}: acc={info['accuracy']} -- {status}{loaded}")
         print(f"    {info['notes']}")
 
     # Try to load catboost_v2
     print("\n" + "-" * 60)
     print("Loading catboost_v2...")
     if engine.load_model("catboost_v2"):
-        print("✅ Model loaded successfully")
+        print("Model loaded successfully")
     else:
-        print("⚠️ Could not load — trying catboost_clean_75...")
+        print("Could not load -- trying catboost_clean_75...")
         engine.load_model("catboost_clean_75")
 
-    print("\n✅ Test complete")
+    print("\nTest complete")
     engine.cleanup()
