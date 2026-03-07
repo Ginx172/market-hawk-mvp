@@ -1,0 +1,73 @@
+# ============================================
+# Market Hawk 3 — .claudeignore
+# Protejează fișierele sensibile și mari
+# ============================================
+
+# === CREDENTIALS & SECRETS ===
+.env
+.env.*
+*.pem
+*.key
+secrets/
+config/credentials.json
+config/credentials.yaml
+**/api_keys*
+**/broker_config.json
+
+# === DATE MARI (nu le încărca în context) ===
+data/raw/*.csv
+data/raw/*.parquet
+data/raw/*.feather
+data/processed/*.parquet
+models/checkpoints/
+models/saved/*.pkl
+models/saved/*.pt
+models/saved/*.h5
+models/saved/*.onnx
+models/saved/*.joblib
+*.zip
+*.tar.gz
+*.7z
+
+# === RAG Knowledge Base (prea mare) ===
+rag_knowledge_base/
+knowledge_base/chunks/
+knowledge_base/embeddings/
+*.faiss
+*.index
+
+# === Cache și build artifacts ===
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+*.egg-info/
+dist/
+build/
+.tox/
+
+# === Logs vechi (păstrează doar ultimele) ===
+logs/*.log
+
+# === Virtual environments ===
+venv/
+.venv/
+env/
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# === Jupyter ===
+notebooks/.ipynb_checkpoints/
+*.ipynb
+
+# === OS ===
+Thumbs.db
+.DS_Store
+desktop.ini

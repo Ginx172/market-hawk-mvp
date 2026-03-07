@@ -13,6 +13,7 @@ Runs Market Hawk's 5-agent system on a schedule:
     - Logs everything to JSONL for analysis
 
 Portfolio starts with $100,000 virtual capital.
+All money/price calculations use decimal.Decimal for precision.
 
 Usage:
     # Single scan (test mode)
@@ -30,12 +31,35 @@ import asyncio
 import logging
 import argparse
 import time
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 
 logger = logging.getLogger("market_hawk.paper_trader")
+
+# Constante Decimal reutilizabile
+D = Decimal
+ZERO = D("0")
+ONE = D("1")
+D100 = D("100")
+INITIAL_CAPITAL = D("100000")
+MAX_TRADE_PCT = D("0.1")   # Max 10% per trade
+
+
+def _to_decimal(value: Any) -> Decimal:
+    """Convert a numeric value to Decimal safely via string representation."""
+    if isinstance(value, Decimal):
+        return value
+    if value is None:
+        return ZERO
+    return D(str(value))
+
+
+def _d_to_json(value: Decimal) -> str:
+    """Serialize Decimal to string for JSON (preserves precision)."""
+    return str(value)
 
 
 # ============================================================
@@ -47,34 +71,41 @@ class Position:
     """An open paper trading position."""
     symbol: str
     side: str               # LONG or SHORT
-    entry_price: float
-    quantity: float
+    entry_price: Decimal
+    quantity: Decimal
     entry_time: str
-    stop_loss: float
-    take_profit: float
+    stop_loss: float        # Percentage (not money)
+    take_profit: float      # Percentage (not money)
     consensus_at_entry: float
-    current_price: float = 0.0
-    unrealized_pnl: float = 0.0
+    current_price: Decimal = ZERO
+    unrealized_pnl: Decimal = ZERO
     unrealized_pnl_pct: float = 0.0
 
-    def update_price(self, price: float):
+    def update_price(self, price: Decimal) -> None:
+        """Update current price and recalculate unrealized P&L."""
         self.current_price = price
+        if self.entry_price == ZERO:
+            return
         if self.side == "LONG":
             self.unrealized_pnl = (price - self.entry_price) * self.quantity
-            self.unrealized_pnl_pct = (price - self.entry_price) / self.entry_price
+            self.unrealized_pnl_pct = float((price - self.entry_price) / self.entry_price)
         else:
             self.unrealized_pnl = (self.entry_price - price) * self.quantity
-            self.unrealized_pnl_pct = (self.entry_price - price) / self.entry_price
+            self.unrealized_pnl_pct = float((self.entry_price - price) / self.entry_price)
 
-    def should_stop_loss(self, price: float) -> bool:
+    def should_stop_loss(self, price: Decimal) -> bool:
+        """Check if price has hit stop-loss level."""
+        sl = _to_decimal(self.stop_loss)
         if self.side == "LONG":
-            return price <= self.entry_price * (1 - self.stop_loss)
-        return price >= self.entry_price * (1 + self.stop_loss)
+            return price <= self.entry_price * (ONE - sl)
+        return price >= self.entry_price * (ONE + sl)
 
-    def should_take_profit(self, price: float) -> bool:
+    def should_take_profit(self, price: Decimal) -> bool:
+        """Check if price has hit take-profit level."""
+        tp = _to_decimal(self.take_profit)
         if self.side == "LONG":
-            return price >= self.entry_price * (1 + self.take_profit)
-        return price <= self.entry_price * (1 - self.take_profit)
+            return price >= self.entry_price * (ONE + tp)
+        return price <= self.entry_price * (ONE - tp)
 
 
 @dataclass
@@ -82,56 +113,66 @@ class ClosedTrade:
     """A completed paper trade."""
     symbol: str
     side: str
-    entry_price: float
-    exit_price: float
-    quantity: float
+    entry_price: Decimal
+    exit_price: Decimal
+    quantity: Decimal
     entry_time: str
     exit_time: str
-    pnl: float
-    pnl_pct: float
+    pnl: Decimal
+    pnl_pct: float          # Ratio, not money
     exit_reason: str        # stop_loss, take_profit, signal_reversal, manual
 
 
 @dataclass
 class Portfolio:
     """Paper trading portfolio state."""
-    initial_capital: float = 100_000.0
-    cash: float = 100_000.0
+    initial_capital: Decimal = INITIAL_CAPITAL
+    cash: Decimal = INITIAL_CAPITAL
     positions: Dict[str, Position] = field(default_factory=dict)
     closed_trades: List[ClosedTrade] = field(default_factory=list)
-    peak_equity: float = 100_000.0
+    peak_equity: Decimal = INITIAL_CAPITAL
     total_scans: int = 0
     total_signals: int = 0
 
     @property
-    def equity(self) -> float:
-        positions_value = sum(p.unrealized_pnl for p in self.positions.values())
+    def equity(self) -> Decimal:
+        """Total portfolio value: cash + unrealized P&L."""
+        positions_value = sum(
+            (p.unrealized_pnl for p in self.positions.values()), ZERO
+        )
         return self.cash + positions_value
 
     @property
-    def total_pnl(self) -> float:
+    def total_pnl(self) -> Decimal:
+        """Total P&L (realized + unrealized)."""
         return self.equity - self.initial_capital
 
     @property
     def total_pnl_pct(self) -> float:
-        return self.total_pnl / self.initial_capital
+        """Total P&L as a percentage."""
+        if self.initial_capital == ZERO:
+            return 0.0
+        return float(self.total_pnl / self.initial_capital)
 
     @property
-    def realized_pnl(self) -> float:
-        return sum(t.pnl for t in self.closed_trades)
+    def realized_pnl(self) -> Decimal:
+        """Sum of realized P&L from closed trades."""
+        return sum((t.pnl for t in self.closed_trades), ZERO)
 
     @property
     def win_rate(self) -> float:
+        """Win rate from closed trades."""
         if not self.closed_trades:
             return 0.0
-        wins = sum(1 for t in self.closed_trades if t.pnl > 0)
+        wins = sum(1 for t in self.closed_trades if t.pnl > ZERO)
         return wins / len(self.closed_trades)
 
     @property
     def max_drawdown(self) -> float:
-        if self.peak_equity == 0:
+        """Current drawdown from peak equity."""
+        if self.peak_equity == ZERO:
             return 0.0
-        return (self.peak_equity - self.equity) / self.peak_equity
+        return float((self.peak_equity - self.equity) / self.peak_equity)
 
     @property
     def sharpe_proxy(self) -> float:
@@ -144,7 +185,7 @@ class Portfolio:
         std_r = np.std(returns)
         if std_r == 0:
             return 0.0
-        return mean_r / std_r * (252 ** 0.5)  # Annualized
+        return float(mean_r / std_r * (252 ** 0.5))  # Annualized
 
 
 # ============================================================
@@ -181,7 +222,7 @@ class PaperTrader:
         # Load saved state if exists
         self._load_state()
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Initialize all agents and Brain."""
         if self._initialized:
             return
@@ -226,7 +267,7 @@ class PaperTrader:
         logger.info("Paper Trader ready — %d agents, %d symbols in watchlist",
                      len(self.brain.agents), len(self.watchlist))
 
-    async def scan_and_trade(self):
+    async def scan_and_trade(self) -> None:
         """
         One full scan cycle:
         1. Update open positions
@@ -262,7 +303,7 @@ class PaperTrader:
                 if latest_features is None:
                     continue
 
-                last_price = float(features_df["Close"].iloc[-1])
+                last_price = _to_decimal(features_df["Close"].iloc[-1])
 
                 # Brain decision
                 decision = await self.brain.decide(symbol, {
@@ -274,7 +315,7 @@ class PaperTrader:
                 # Log signal
                 if decision.action != "HOLD":
                     self.portfolio.total_signals += 1
-                    logger.info("📡 SIGNAL: %s %s @ $%.2f (consensus: %+.4f)",
+                    logger.info("SIGNAL: %s %s @ $%s (consensus: %+.4f)",
                                  decision.action, symbol, last_price,
                                  decision.consensus_score)
 
@@ -303,9 +344,9 @@ class PaperTrader:
         # 5. Display status
         self._print_status()
 
-    async def _update_positions(self):
+    async def _update_positions(self) -> None:
         """Update prices and check SL/TP for open positions."""
-        to_close = []
+        to_close: List[tuple] = []
 
         for symbol, pos in self.portfolio.positions.items():
             try:
@@ -313,19 +354,19 @@ class PaperTrader:
                 if features_df is None or features_df.empty:
                     continue
 
-                current_price = float(features_df["Close"].iloc[-1])
+                current_price = _to_decimal(features_df["Close"].iloc[-1])
                 pos.update_price(current_price)
 
                 # Check stop loss
                 if pos.should_stop_loss(current_price):
                     to_close.append((symbol, current_price, "stop_loss"))
-                    logger.info("🛑 STOP LOSS: %s @ $%.2f (entry: $%.2f)",
+                    logger.info("STOP LOSS: %s @ $%s (entry: $%s)",
                                  symbol, current_price, pos.entry_price)
 
                 # Check take profit
                 elif pos.should_take_profit(current_price):
                     to_close.append((symbol, current_price, "take_profit"))
-                    logger.info("🎯 TAKE PROFIT: %s @ $%.2f (entry: $%.2f)",
+                    logger.info("TAKE PROFIT: %s @ $%s (entry: $%s)",
                                  symbol, current_price, pos.entry_price)
 
             except Exception as e:
@@ -335,17 +376,20 @@ class PaperTrader:
         for symbol, price, reason in to_close:
             self._close_position(symbol, price, reason)
 
-    def _open_position(self, symbol: str, action: str, price: float,
+    def _open_position(self, symbol: str, action: str, price: Decimal,
                        consensus: float, position_size: float,
-                       stop_loss: float, take_profit: float):
+                       stop_loss: float, take_profit: float) -> None:
         """Open a new paper position."""
-        # Calculate quantity based on position size
-        trade_value = self.portfolio.cash * position_size
-        if trade_value > self.portfolio.cash * 0.1:  # Max 10% per trade
-            trade_value = self.portfolio.cash * 0.1
-        quantity = trade_value / price if price > 0 else 0
+        pos_size_d = _to_decimal(position_size)
+        trade_value = self.portfolio.cash * pos_size_d
 
-        if quantity <= 0:
+        max_value = self.portfolio.cash * MAX_TRADE_PCT
+        if trade_value > max_value:
+            trade_value = max_value
+
+        quantity = trade_value / price if price > ZERO else ZERO
+
+        if quantity <= ZERO:
             return
 
         side = "LONG" if action == "BUY" else "SHORT"
@@ -367,13 +411,14 @@ class PaperTrader:
         if side == "LONG":
             self.portfolio.cash -= trade_value
 
-        logger.info("📈 OPENED %s %s: %.4f units @ $%.2f ($%.2f) | SL=%.2f%% TP=%.2f%%",
-                     side, symbol, quantity, price, trade_value,
+        logger.info("OPENED %s %s: %s units @ $%s ($%s) | SL=%.2f%% TP=%.2f%%",
+                     side, symbol, quantity.quantize(D("0.0001")),
+                     price.quantize(D("0.01")), trade_value.quantize(D("0.01")),
                      stop_loss * 100, take_profit * 100)
 
         self._log_trade_event("OPEN", symbol, side, price, quantity, consensus)
 
-    def _close_position(self, symbol: str, exit_price: float, reason: str):
+    def _close_position(self, symbol: str, exit_price: Decimal, reason: str) -> None:
         """Close a paper position and record the trade."""
         if symbol not in self.portfolio.positions:
             return
@@ -389,7 +434,8 @@ class PaperTrader:
             pnl = (pos.entry_price - exit_price) * pos.quantity
             self.portfolio.cash += pnl
 
-        pnl_pct = pnl / (pos.entry_price * pos.quantity) if pos.entry_price > 0 else 0
+        entry_value = pos.entry_price * pos.quantity
+        pnl_pct = float(pnl / entry_value) if entry_value > ZERO else 0.0
 
         trade = ClosedTrade(
             symbol=symbol,
@@ -406,23 +452,27 @@ class PaperTrader:
         self.portfolio.closed_trades.append(trade)
         del self.portfolio.positions[symbol]
 
-        emoji = "✅" if pnl > 0 else "❌"
-        logger.info("%s CLOSED %s %s @ $%.2f -> $%.2f | P&L: $%.2f (%.2f%%) | %s",
-                     emoji, pos.side, symbol, pos.entry_price, exit_price,
-                     pnl, pnl_pct * 100, reason)
+        tag = "WIN" if pnl > ZERO else "LOSS"
+        logger.info("%s CLOSED %s %s @ $%s -> $%s | P&L: $%s (%.2f%%) | %s",
+                     tag, pos.side, symbol,
+                     pos.entry_price.quantize(D("0.01")),
+                     exit_price.quantize(D("0.01")),
+                     pnl.quantize(D("0.01")),
+                     pnl_pct * 100, reason)
 
         self._log_trade_event("CLOSE", symbol, pos.side, exit_price,
                                pos.quantity, 0, pnl=pnl, reason=reason)
 
-    def _print_status(self):
+    def _print_status(self) -> None:
         """Display current portfolio status."""
         p = self.portfolio
-        print(f"\n{'─' * 60}")
-        print(f"  💰 PORTFOLIO STATUS")
-        print(f"{'─' * 60}")
-        print(f"  Equity:      ${p.equity:>12,.2f}  ({p.total_pnl_pct:+.2%})")
-        print(f"  Cash:        ${p.cash:>12,.2f}")
-        print(f"  Realized:    ${p.realized_pnl:>12,.2f}")
+        equity = p.equity
+        print(f"\n{'---' * 20}")
+        print(f"  PORTFOLIO STATUS")
+        print(f"{'---' * 20}")
+        print(f"  Equity:      ${equity:>14,.2f}  ({p.total_pnl_pct:+.2%})")
+        print(f"  Cash:        ${p.cash:>14,.2f}")
+        print(f"  Realized:    ${p.realized_pnl:>14,.2f}")
         print(f"  Open:        {len(p.positions)} positions")
         print(f"  Trades:      {len(p.closed_trades)} closed")
         print(f"  Win Rate:    {p.win_rate:.1%}")
@@ -433,8 +483,8 @@ class PaperTrader:
         if p.positions:
             print(f"\n  Open Positions:")
             for sym, pos in p.positions.items():
-                pnl_emoji = "🟢" if pos.unrealized_pnl >= 0 else "🔴"
-                print(f"    {pnl_emoji} {pos.side:5s} {sym:<10s} "
+                tag = "+" if pos.unrealized_pnl >= ZERO else "-"
+                print(f"    [{tag}] {pos.side:5s} {sym:<10s} "
                       f"entry=${pos.entry_price:>10,.2f} "
                       f"now=${pos.current_price:>10,.2f} "
                       f"P&L=${pos.unrealized_pnl:>+10,.2f} "
@@ -444,16 +494,16 @@ class PaperTrader:
             recent = p.closed_trades[-5:]
             print(f"\n  Recent Trades (last {len(recent)}):")
             for t in recent:
-                emoji = "✅" if t.pnl > 0 else "❌"
-                print(f"    {emoji} {t.side:5s} {t.symbol:<10s} "
+                tag = "WIN " if t.pnl > ZERO else "LOSS"
+                print(f"    [{tag}] {t.side:5s} {t.symbol:<10s} "
                       f"${t.entry_price:,.2f}->${t.exit_price:,.2f} "
                       f"P&L=${t.pnl:>+,.2f} ({t.exit_reason})")
 
-        print(f"{'─' * 60}")
+        print(f"{'---' * 20}")
 
     def _log_trade_event(self, event: str, symbol: str, side: str,
-                          price: float, qty: float, consensus: float = 0,
-                          pnl: float = 0, reason: str = ""):
+                          price: Decimal, qty: Decimal, consensus: float = 0,
+                          pnl: Decimal = ZERO, reason: str = "") -> None:
         """Log trade event to JSONL."""
         try:
             self.TRADE_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -462,32 +512,50 @@ class PaperTrader:
                 "event": event,
                 "symbol": symbol,
                 "side": side,
-                "price": price,
-                "quantity": qty,
+                "price": _d_to_json(price),
+                "quantity": _d_to_json(qty),
                 "consensus": consensus,
-                "pnl": pnl,
+                "pnl": _d_to_json(pnl),
                 "reason": reason,
-                "equity": self.portfolio.equity,
+                "equity": _d_to_json(self.portfolio.equity),
             }
             with open(self.TRADE_LOG, "a") as f:
                 f.write(json.dumps(entry) + "\n")
         except Exception as e:
             logger.error("Failed to log trade: %s", str(e))
 
-    def _save_state(self):
+    def _save_state(self) -> None:
         """Save portfolio state to JSON."""
         try:
             self.SAVE_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+            # Serialize positions — convert Decimal fields to string
+            positions_data = {}
+            for sym, pos in self.portfolio.positions.items():
+                positions_data[sym] = {
+                    "symbol": pos.symbol,
+                    "side": pos.side,
+                    "entry_price": _d_to_json(pos.entry_price),
+                    "quantity": _d_to_json(pos.quantity),
+                    "entry_time": pos.entry_time,
+                    "stop_loss": pos.stop_loss,
+                    "take_profit": pos.take_profit,
+                    "consensus_at_entry": pos.consensus_at_entry,
+                    "current_price": _d_to_json(pos.current_price),
+                    "unrealized_pnl": _d_to_json(pos.unrealized_pnl),
+                    "unrealized_pnl_pct": pos.unrealized_pnl_pct,
+                }
+
             state = {
                 "saved_at": datetime.utcnow().isoformat(),
-                "cash": self.portfolio.cash,
-                "initial_capital": self.portfolio.initial_capital,
-                "peak_equity": self.portfolio.peak_equity,
+                "cash": _d_to_json(self.portfolio.cash),
+                "initial_capital": _d_to_json(self.portfolio.initial_capital),
+                "peak_equity": _d_to_json(self.portfolio.peak_equity),
                 "total_scans": self.portfolio.total_scans,
                 "total_signals": self.portfolio.total_signals,
-                "positions": {s: asdict(p) for s, p in self.portfolio.positions.items()},
+                "positions": positions_data,
                 "closed_trades_count": len(self.portfolio.closed_trades),
-                "realized_pnl": self.portfolio.realized_pnl,
+                "realized_pnl": _d_to_json(self.portfolio.realized_pnl),
                 "win_rate": self.portfolio.win_rate,
             }
             with open(self.SAVE_FILE, "w") as f:
@@ -495,19 +563,37 @@ class PaperTrader:
         except Exception as e:
             logger.error("Failed to save state: %s", str(e))
 
-    def _load_state(self):
+    def _load_state(self) -> None:
         """Load portfolio state from JSON."""
         if not self.SAVE_FILE.exists():
             return
         try:
             with open(self.SAVE_FILE) as f:
                 state = json.load(f)
-            self.portfolio.cash = state.get("cash", 100_000.0)
-            self.portfolio.peak_equity = state.get("peak_equity", 100_000.0)
+            self.portfolio.cash = D(str(state.get("cash", "100000")))
+            self.portfolio.peak_equity = D(str(state.get("peak_equity", "100000")))
             self.portfolio.total_scans = state.get("total_scans", 0)
             self.portfolio.total_signals = state.get("total_signals", 0)
-            logger.info("Loaded portfolio state from %s (scans: %d)",
-                         self.SAVE_FILE, self.portfolio.total_scans)
+
+            # Restore open positions
+            for sym, pos_data in state.get("positions", {}).items():
+                self.portfolio.positions[sym] = Position(
+                    symbol=pos_data["symbol"],
+                    side=pos_data["side"],
+                    entry_price=D(str(pos_data["entry_price"])),
+                    quantity=D(str(pos_data["quantity"])),
+                    entry_time=pos_data["entry_time"],
+                    stop_loss=pos_data["stop_loss"],
+                    take_profit=pos_data["take_profit"],
+                    consensus_at_entry=pos_data["consensus_at_entry"],
+                    current_price=D(str(pos_data.get("current_price", "0"))),
+                    unrealized_pnl=D(str(pos_data.get("unrealized_pnl", "0"))),
+                    unrealized_pnl_pct=pos_data.get("unrealized_pnl_pct", 0.0),
+                )
+
+            logger.info("Loaded portfolio state from %s (scans: %d, positions: %d)",
+                         self.SAVE_FILE, self.portfolio.total_scans,
+                         len(self.portfolio.positions))
         except Exception as e:
             logger.warning("Could not load state: %s", str(e))
 
@@ -516,12 +602,12 @@ class PaperTrader:
 # MAIN
 # ============================================================
 
-async def run_loop(interval_minutes: int):
+async def run_loop(interval_minutes: int) -> None:
     """Continuous paper trading loop."""
     trader = PaperTrader()
     await trader.initialize()
 
-    print(f"\n🔄 Paper Trading Loop — scanning every {interval_minutes} minutes")
+    print(f"\nPaper Trading Loop — scanning every {interval_minutes} minutes")
     print(f"   Watchlist: {', '.join(trader.watchlist)}")
     print(f"   Press Ctrl+C to stop\n")
 
@@ -531,7 +617,7 @@ async def run_loop(interval_minutes: int):
             logger.info("Next scan in %d minutes...", interval_minutes)
             await asyncio.sleep(interval_minutes * 60)
         except KeyboardInterrupt:
-            print("\n\n🛑 Paper Trading stopped by user")
+            print("\n\nPaper Trading stopped by user")
             trader._save_state()
             trader._print_status()
             break
@@ -540,14 +626,14 @@ async def run_loop(interval_minutes: int):
             await asyncio.sleep(60)
 
 
-async def run_once():
+async def run_once() -> None:
     """Single scan (test mode)."""
     trader = PaperTrader()
     await trader.initialize()
     await trader.scan_and_trade()
 
 
-async def show_status():
+async def show_status() -> None:
     """Show portfolio status without scanning."""
     trader = PaperTrader()
     trader._print_status()

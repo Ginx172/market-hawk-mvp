@@ -613,6 +613,7 @@ class HistoricalDataLoader:
                 try:
                     converted = pd.to_datetime(df[col], errors="coerce")
                 except Exception:
+                    logger.warning("Failed to parse string column '%s' as datetime", col)
                     continue
 
             # Numeric column → try unit="ms" then unit="s"
@@ -629,12 +630,14 @@ class HistoricalDataLoader:
                     else:  # Could be Excel serial or plain int — try general
                         converted = pd.to_datetime(df[col], errors="coerce")
                 except Exception:
+                    logger.warning("Failed to parse numeric column '%s' as datetime", col)
                     continue
             else:
                 # Already datetime-like
                 try:
                     converted = pd.to_datetime(df[col], errors="coerce")
                 except Exception:
+                    logger.warning("Failed to parse column '%s' as datetime", col)
                     continue
 
             # Check if conversion succeeded on >50% of rows
@@ -654,13 +657,13 @@ class HistoricalDataLoader:
                     df.index = pd.to_datetime(df.index, unit="s")
                 return df
             except Exception:
-                pass
+                logger.warning("Failed to convert numeric index to datetime")
 
         # Try parsing index as string dates
         try:
             df.index = pd.to_datetime(df.index, errors="coerce")
         except Exception:
-            pass
+            logger.warning("Failed to parse index as string dates")
 
         return df
 

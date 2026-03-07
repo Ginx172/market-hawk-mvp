@@ -30,6 +30,7 @@ pdf2image>=1.16.0
 python-docx>=0.8.11
 
 # === Market Data ===
+feedparser>=6.0.0
 yfinance>=0.2.30
 ccxt>=4.0.0
 alpha-vantage>=2.3.1

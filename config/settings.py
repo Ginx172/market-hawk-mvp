@@ -12,6 +12,10 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # ============================================================
 # PATH CONFIGURATION
 # ============================================================
@@ -24,23 +28,38 @@ LOGS_DIR = PROJECT_ROOT / "logs"
 DATA_DIR = PROJECT_ROOT / "data"
 
 # ============================================================
-# LOCAL DATA PATHS (Gigi's machine)
+# LOCAL DATA PATHS (read from .env, fallback to defaults)
 # ============================================================
 
 LOCAL_DATA_PATHS = {
-    "trading_documents": r"J:\E-Books\Trading Database",
-    "mm_dataset": r"C:\_AI\Market_Hawk\_mm_dataset",
-    "mm_image_kit": r"C:\_AI\Market_Hawk\_mm_image_kit",
-    "mm_pair_dataset": r"C:\_AI\Market_Hawk\_mm_pair_dataset",
-    "datasets": r"C:\_AI\Market_Hawk\datasets",
-    "market_hawk_v2": r"C:\_AI\Market_Hawk_2",
+    "trading_documents": os.environ.get(
+        "MH_PATH_TRADING_DOCS", r"J:\E-Books\Trading Database"
+    ),
+    "mm_dataset": os.environ.get(
+        "MH_PATH_MM_DATASET", r"C:\_AI\Market_Hawk\_mm_dataset"
+    ),
+    "mm_image_kit": os.environ.get(
+        "MH_PATH_MM_IMAGE_KIT", r"C:\_AI\Market_Hawk\_mm_image_kit"
+    ),
+    "mm_pair_dataset": os.environ.get(
+        "MH_PATH_MM_PAIR_DATASET", r"C:\_AI\Market_Hawk\_mm_pair_dataset"
+    ),
+    "datasets": os.environ.get(
+        "MH_PATH_DATASETS", r"C:\_AI\Market_Hawk\datasets"
+    ),
+    "market_hawk_v2": os.environ.get(
+        "MH_PATH_MARKET_HAWK_V2", r"C:\_AI\Market_Hawk_2"
+    ),
 }
 
 # ============================================================
 # EXISTING CHROMADB (from previous work)
 # ============================================================
 
-EXISTING_CHROMADB_PATH = r"K:\_DEV_MVP_2026\Agent_Trading_AI\AgentTradingAI\baza_date_vectoriala_v2"
+EXISTING_CHROMADB_PATH = os.environ.get(
+    "MH_CHROMADB_PATH",
+    r"K:\_DEV_MVP_2026\Agent_Trading_AI\AgentTradingAI\baza_date_vectoriala_v2",
+)
 
 
 # ============================================================
@@ -140,8 +159,14 @@ RAG_CONFIG = RAGConfig()
 @dataclass
 class MLConfig:
     """Configuration for the ML Signal Engine."""
-    model_path: str = r"G:\......................AI_Models\catboost_v2_advanced_20250724_011145.cbm"
-    models_base_dir: str = r"G:\......................AI_Models"
+    model_path: str = os.environ.get(
+        "MH_ML_MODEL_PATH",
+        r"G:\......................AI_Models\catboost_v2_advanced_20250724_011145.cbm",
+    )
+    models_base_dir: str = os.environ.get(
+        "MH_ML_MODELS_DIR",
+        r"G:\......................AI_Models",
+    )
     confidence_threshold: float = 0.65
     features_version: str = "v2"
     supported_timeframes: list = field(default_factory=lambda: ["1h", "4h", "1d"])

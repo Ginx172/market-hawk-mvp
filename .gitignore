@@ -55,3 +55,13 @@ desktop.ini
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Claude Code workspace
+.claude/
+
+# Personal notes
+GEMINI_Chat.txt
+cautari.txt
+scan1_2_3.txt
+structura_proiect.txt
+activare venv.txt
