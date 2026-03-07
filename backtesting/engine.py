@@ -7,12 +7,16 @@ Purpose: Core backtesting engine — runs strategies on historical data,
          tracks positions, calculates P&L, generates comprehensive reports.
 Hardware Optimization: Intel i7-9700F, NVIDIA GTX 1070 8GB VRAM, 64GB DDR4
 Creation Date: 2026-03-01
+
+All money/price calculations use decimal.Decimal for precision.
+Ratios, percentages, and statistical metrics remain float.
 """
 
 import gc
 import json
 import logging
 import time
+from decimal import Decimal
 from pathlib import Path
 from typing import Optional, Dict, List, Any, Tuple
 from datetime import datetime
@@ -25,6 +29,20 @@ from backtesting.strategies import StrategyBase, TradeSignal, Signal
 from backtesting.data_loader import HistoricalDataLoader
 
 logger = logging.getLogger("market_hawk.backtest.engine")
+
+# Decimal helpers (same pattern as trading/paper_trader.py)
+D = Decimal
+ZERO = D("0")
+ONE = D("1")
+
+
+def _to_decimal(value: Any) -> Decimal:
+    """Convert a numeric value to Decimal safely via string representation."""
+    if isinstance(value, Decimal):
+        return value
+    if value is None:
+        return ZERO
+    return D(str(value))
 
 
 # ============================================================
@@ -41,12 +59,12 @@ class BacktestTrade:
     exit_idx: int
     entry_time: str
     exit_time: str
-    entry_price: float
-    exit_price: float
-    quantity: float
-    pnl: float
-    pnl_pct: float
-    commission: float
+    entry_price: Decimal
+    exit_price: Decimal
+    quantity: Decimal
+    pnl: Decimal
+    pnl_pct: float         # Ratio, not money
+    commission: Decimal
     exit_reason: str       # stop_loss, take_profit, signal_reversal, end_of_data
     hold_bars: int
     signal_confidence: float
@@ -66,7 +84,7 @@ class BacktestResult:
     start_date: str
     end_date: str
     total_bars: int
-    initial_capital: float
+    initial_capital: float      # float for JSON/reporting compatibility
     final_equity: float
     total_return_pct: float
     total_trades: int
@@ -145,15 +163,15 @@ class BacktestEngine:
             allow_short: Enable short selling
             allow_pyramiding: Allow multiple entries in same direction
         """
-        self.initial_capital = initial_capital
-        self.commission_pct = commission_pct
-        self.slippage_pct = slippage_pct
-        self.max_position_pct = max_position_pct
+        self.initial_capital = _to_decimal(initial_capital)
+        self.commission_pct = _to_decimal(commission_pct)
+        self.slippage_pct = _to_decimal(slippage_pct)
+        self.max_position_pct = _to_decimal(max_position_pct)
         self.allow_short = allow_short
         self.allow_pyramiding = allow_pyramiding
 
         # State
-        self._cash = initial_capital
+        self._cash: Decimal = self.initial_capital
         self._position: Optional[Dict] = None  # Current open position
         self._trades: List[BacktestTrade] = []
         self._trade_counter = 0
@@ -202,7 +220,7 @@ class BacktestEngine:
 
         # ---- Main loop ----
         for idx in range(total_bars):
-            current_price = float(df["Close"].iloc[idx])
+            current_price = _to_decimal(df["Close"].iloc[idx])
 
             # 1. Check SL/TP on open position
             if self._position is not None:
@@ -226,9 +244,9 @@ class BacktestEngine:
                     self._close_position(df, idx, current_price, "signal_reversal")
                     self._open_position(df, idx, current_price, "LONG", signal)
 
-            # 4. Track equity
+            # 4. Track equity (as float for numpy-based metrics later)
             equity = self._calculate_equity(current_price)
-            self._equity_curve.append(equity)
+            self._equity_curve.append(float(equity))
 
             # 5. Progress reporting
             if idx % report_interval == 0 and idx > 0:
@@ -248,9 +266,9 @@ class BacktestEngine:
 
         # Close any remaining position at end
         if self._position is not None:
-            last_price = float(df["Close"].iloc[-1])
+            last_price = _to_decimal(df["Close"].iloc[-1])
             self._close_position(df, len(df) - 1, last_price, "end_of_data")
-            self._equity_curve[-1] = self._calculate_equity(last_price)
+            self._equity_curve[-1] = float(self._calculate_equity(last_price))
 
         # Calculate metrics
         elapsed = time.time() - t0
@@ -307,22 +325,24 @@ class BacktestEngine:
     # ============================================================
 
     def _open_position(self, df: pd.DataFrame, idx: int,
-                       price: float, side: str, signal: TradeSignal):
+                       price: Decimal, side: str, signal: TradeSignal) -> None:
         """Open a new position."""
         # Apply slippage
         if side == "LONG":
-            fill_price = price * (1 + self.slippage_pct)
+            fill_price = price * (ONE + self.slippage_pct)
         else:
-            fill_price = price * (1 - self.slippage_pct)
+            fill_price = price * (ONE - self.slippage_pct)
 
         # Position sizing
         equity = self._calculate_equity(price)
-        trade_value = equity * min(signal.position_size, self.max_position_pct)
+        pos_size = _to_decimal(signal.position_size)
+        max_pos = self.max_position_pct
+        trade_value = equity * min(pos_size, max_pos)
         commission = trade_value * self.commission_pct
         trade_value -= commission
-        quantity = trade_value / fill_price if fill_price > 0 else 0
+        quantity = trade_value / fill_price if fill_price > ZERO else ZERO
 
-        if quantity <= 0:
+        if quantity <= ZERO:
             return
 
         # Deduct cash for LONG
@@ -343,7 +363,7 @@ class BacktestEngine:
         }
 
     def _close_position(self, df: pd.DataFrame, idx: int,
-                        price: float, reason: str):
+                        price: Decimal, reason: str) -> None:
         """Close the current position."""
         if self._position is None:
             return
@@ -353,9 +373,9 @@ class BacktestEngine:
 
         # Apply slippage
         if side == "LONG":
-            fill_price = price * (1 - self.slippage_pct)
+            fill_price = price * (ONE - self.slippage_pct)
         else:
-            fill_price = price * (1 + self.slippage_pct)
+            fill_price = price * (ONE + self.slippage_pct)
 
         # Calculate P&L
         if side == "LONG":
@@ -369,7 +389,8 @@ class BacktestEngine:
         pnl -= commission_exit
         total_commission = pos["commission_entry"] + commission_exit
 
-        pnl_pct = pnl / (pos["entry_price"] * pos["quantity"]) if pos["entry_price"] > 0 else 0
+        entry_value = pos["entry_price"] * pos["quantity"]
+        pnl_pct = float(pnl / entry_value) if entry_value > ZERO else 0.0
 
         # Return cash
         if side == "LONG":
@@ -401,30 +422,30 @@ class BacktestEngine:
         self._position = None
 
     def _check_exit(self, df: pd.DataFrame, idx: int,
-                    price: float) -> Optional[str]:
+                    price: Decimal) -> Optional[str]:
         """Check if position should be closed (SL/TP)."""
         if self._position is None:
             return None
 
         pos = self._position
         entry = pos["entry_price"]
+        sl = _to_decimal(pos["stop_loss_pct"])
+        tp = _to_decimal(pos["take_profit_pct"])
 
         if pos["side"] == "LONG":
-            # Stop loss
-            if price <= entry * (1 - pos["stop_loss_pct"]):
+            if price <= entry * (ONE - sl):
                 return "stop_loss"
-            # Take profit
-            if price >= entry * (1 + pos["take_profit_pct"]):
+            if price >= entry * (ONE + tp):
                 return "take_profit"
         else:  # SHORT
-            if price >= entry * (1 + pos["stop_loss_pct"]):
+            if price >= entry * (ONE + sl):
                 return "stop_loss"
-            if price <= entry * (1 - pos["take_profit_pct"]):
+            if price <= entry * (ONE - tp):
                 return "take_profit"
 
         return None
 
-    def _calculate_equity(self, current_price: float) -> float:
+    def _calculate_equity(self, current_price: Decimal) -> Decimal:
         """Calculate current total equity."""
         equity = self._cash
         if self._position is not None:
@@ -444,22 +465,22 @@ class BacktestEngine:
                          elapsed: float) -> BacktestResult:
         """Compute all performance metrics from trades and equity curve."""
 
-        equity = np.array(self._equity_curve) if self._equity_curve else np.array([self.initial_capital])
-        final_equity = equity[-1] if len(equity) > 0 else self.initial_capital
+        equity = np.array(self._equity_curve) if self._equity_curve else np.array([float(self.initial_capital)])
+        final_equity = equity[-1] if len(equity) > 0 else float(self.initial_capital)
 
         # Basic stats
         total_trades = len(self._trades)
-        wins = [t for t in self._trades if t.pnl > 0]
-        losses = [t for t in self._trades if t.pnl <= 0]
+        wins = [t for t in self._trades if t.pnl > ZERO]
+        losses = [t for t in self._trades if t.pnl <= ZERO]
         win_rate = len(wins) / total_trades if total_trades > 0 else 0
 
         avg_win = np.mean([t.pnl_pct for t in wins]) if wins else 0
         avg_loss = np.mean([t.pnl_pct for t in losses]) if losses else 0
 
         # Profit factor
-        gross_profit = sum(t.pnl for t in wins) if wins else 0
-        gross_loss = abs(sum(t.pnl for t in losses)) if losses else 1
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf")
+        gross_profit = sum((t.pnl for t in wins), ZERO) if wins else ZERO
+        gross_loss = abs(sum((t.pnl for t in losses), ZERO)) if losses else ONE
+        profit_factor = float(gross_profit / gross_loss) if gross_loss > ZERO else float("inf")
 
         # Drawdown
         peak = np.maximum.accumulate(equity)
@@ -514,14 +535,15 @@ class BacktestEngine:
         sortino = (mean_r / downside_std) * np.sqrt(annual_factor) if downside_std > 0 else 0
 
         # Calmar (return / max DD)
-        total_return = (final_equity - self.initial_capital) / self.initial_capital
+        initial_f = float(self.initial_capital)
+        total_return = (final_equity - initial_f) / initial_f
         calmar = total_return / max_dd if max_dd > 0 else 0
 
         # Average hold time
         avg_hold = np.mean([t.hold_bars for t in self._trades]) if self._trades else 0
 
         # Total commission
-        total_comm = sum(t.commission for t in self._trades)
+        total_comm = sum((t.commission for t in self._trades), ZERO)
 
         # Monthly returns (if DatetimeIndex)
         monthly = {}
@@ -543,7 +565,7 @@ class BacktestEngine:
             start_date=start_date,
             end_date=end_date,
             total_bars=len(df),
-            initial_capital=self.initial_capital,
+            initial_capital=initial_f,
             final_equity=float(final_equity),
             total_return_pct=float(total_return),
             total_trades=total_trades,
@@ -634,4 +656,4 @@ if __name__ == "__main__":
         else:
             print("  No result")
 
-    print("\n✅ Backtest engine test complete")
+    print("\nBacktest engine test complete")
