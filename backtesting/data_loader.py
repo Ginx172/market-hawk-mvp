@@ -333,6 +333,9 @@ class HistoricalDataLoader:
         # Standardize columns
         df = self._standardize_columns(df)
 
+        # Validate OHLCV data quality
+        df = self.validate_ohlcv(df)
+
         # Sort by time
         df = df.sort_index()
 
@@ -664,6 +667,85 @@ class HistoricalDataLoader:
             df.index = pd.to_datetime(df.index, errors="coerce")
         except Exception:
             logger.warning("Failed to parse index as string dates")
+
+        return df
+
+    @staticmethod
+    def validate_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
+        """Validate OHLCV data quality and remove invalid rows.
+
+        Checks performed:
+            - Open, High, Low, Close must be > 0
+            - High must be >= Low
+            - Volume must be >= 0
+            - Gaps > 50% from previous close flagged as warning
+
+        Invalid rows are set to NaN and dropped. Gap warnings are logged
+        but data is kept (large moves can be real, e.g., earnings).
+
+        Args:
+            df: DataFrame with OHLCV columns.
+
+        Returns:
+            Cleaned DataFrame with invalid rows removed.
+        """
+        if df.empty:
+            return df
+
+        initial_len = len(df)
+        invalid_mask = pd.Series(False, index=df.index)
+
+        # Check positive prices
+        for col in ["Open", "High", "Low", "Close"]:
+            if col in df.columns:
+                bad = df[col] <= 0
+                if bad.any():
+                    count = bad.sum()
+                    logger.warning("validate_ohlcv: %d rows with %s <= 0", count, col)
+                    invalid_mask |= bad
+
+        # Check High >= Low
+        if "High" in df.columns and "Low" in df.columns:
+            inverted = df["High"] < df["Low"]
+            if inverted.any():
+                count = inverted.sum()
+                logger.warning("validate_ohlcv: %d rows with High < Low (inverted bars)",
+                               count)
+                invalid_mask |= inverted
+
+        # Check Volume >= 0
+        if "Volume" in df.columns:
+            neg_vol = df["Volume"] < 0
+            if neg_vol.any():
+                count = neg_vol.sum()
+                logger.warning("validate_ohlcv: %d rows with negative Volume", count)
+                invalid_mask |= neg_vol
+
+        # Flag large gaps (> 50% from previous close) as warnings
+        if "Close" in df.columns and len(df) > 1:
+            prev_close = df["Close"].shift(1)
+            pct_change = ((df["Close"] - prev_close) / prev_close).abs()
+            large_gaps = pct_change > 0.50
+            # Skip first row (NaN from shift)
+            large_gaps.iloc[0] = False
+            if large_gaps.any():
+                gap_count = large_gaps.sum()
+                gap_indices = df.index[large_gaps].tolist()
+                logger.warning(
+                    "validate_ohlcv: %d rows with >50%% gap from previous close "
+                    "(possible data error or corporate action): %s",
+                    gap_count,
+                    gap_indices[:5],  # Show first 5
+                )
+
+        # Remove invalid rows
+        if invalid_mask.any():
+            removed = invalid_mask.sum()
+            df = df[~invalid_mask].copy()
+            logger.info("validate_ohlcv: removed %d / %d invalid rows (%.1f%%)",
+                        removed, initial_len, removed / initial_len * 100)
+        else:
+            logger.debug("validate_ohlcv: all %d rows valid", initial_len)
 
         return df
 

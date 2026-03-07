@@ -406,40 +406,45 @@ class AlertManager:
 
     # ---------- DESKTOP (Windows Toast) ----------
     @staticmethod
-    def _sanitize_ps_string(text: str) -> str:
-        """Strip characters that could escape a PowerShell single-quoted string.
+    def _plain_text(text: str, max_len: int = 200) -> str:
+        """Strip to plain ASCII-safe text for toast notifications.
 
-        Single-quoted strings in PowerShell have no escape sequences except ''
-        for a literal quote. We replace ' with '' and strip control chars.
+        Removes all control characters and truncates to max_len.
         """
         import re
-        # Elimina caractere de control (tab/newline pastrate ca spatiu)
-        cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
-        cleaned = cleaned.replace('\n', ' ').replace('\r', '')
-        # Escape single quotes pentru PowerShell single-quoted strings
-        cleaned = cleaned.replace("'", "''")
-        return cleaned
+        cleaned = re.sub(r'[\x00-\x1f\x7f]', ' ', text)
+        return cleaned[:max_len]
 
     def _send_desktop(self, alert: Alert) -> None:
-        """Send Windows 10/11 toast notification via PowerShell."""
+        """Send Windows 10/11 toast notification via PowerShell.
+
+        Security: Uses -EncodedCommand with Base64-encoded UTF-16LE script.
+        This eliminates all command injection vectors because the script is
+        fully constructed in Python and encoded — no string concatenation
+        in the PowerShell argument parser.
+        """
         if os.name != "nt":
             logger.debug("Desktop notifications only supported on Windows")
             return
 
-        title = self._sanitize_ps_string(
+        import base64
+
+        title = self._plain_text(
             f"Market Hawk -- {alert.signal} {alert.symbol}"
         )
-        body = self._sanitize_ps_string(
+        body = self._plain_text(
             f"Score: {alert.score:+.3f} | Conf: {alert.confidence:.0%} "
             f"Price: ${alert.price:,.2f} "
             f"{alert.reason[:120]}"
         )
 
-        # Folosim single-quoted strings in PowerShell (fara interpolare)
+        # Embed title/body as PowerShell string literals using here-strings,
+        # which do NOT interpret any escape sequences or variable expansions.
+        # The entire script is pre-built in Python, then Base64-encoded.
         ps_script = (
             "$ErrorActionPreference = 'SilentlyContinue'\n"
-            "$title = '" + title + "'\n"
-            "$body = '" + body + "'\n"
+            f"$title = @'\n{title}\n'@\n"
+            f"$body = @'\n{body}\n'@\n"
             "if (Get-Module -ListAvailable -Name BurntToast) {\n"
             "    Import-Module BurntToast\n"
             "    New-BurntToastNotification -Text $title, $body -AppLogo $null\n"
@@ -456,10 +461,15 @@ class AlertManager:
             "}\n"
         )
 
+        # Encode as UTF-16LE Base64 for -EncodedCommand
+        encoded = base64.b64encode(
+            ps_script.encode("utf-16-le")
+        ).decode("ascii")
+
         try:
             subprocess.Popen(
                 ["powershell", "-NoProfile", "-WindowStyle", "Hidden",
-                 "-Command", ps_script],
+                 "-EncodedCommand", encoded],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,

@@ -66,7 +66,7 @@ class TestEngineerFeatures:
 
     def test_no_nan_after_engineering(self, fetcher, sample_ohlcv_df):
         result = fetcher.engineer_features(sample_ohlcv_df, symbol="TEST")
-        # ffill + bfill + fillna(0) should eliminate NaN
+        # ffill + fillna(0) should eliminate NaN (no bfill — causes look-ahead bias)
         assert result.isna().sum().sum() == 0
 
     def test_no_inf_after_engineering(self, fetcher, sample_ohlcv_df):

@@ -284,8 +284,8 @@ class MarketDataFetcher:
         result["volume_ma"] = pd.Series(volume).rolling(20).mean()
 
         # Fill NaN from rolling calculations (first 200 rows have NaN from SMA_200)
-        # Use forward fill then backward fill, then 0 for any remaining
-        result = result.ffill().bfill().fillna(0)
+        # Forward fill only — bfill() introduces look-ahead bias in time series
+        result = result.ffill().fillna(0)
         
         # Replace inf values
         result = result.replace([np.inf, -np.inf], 0)
