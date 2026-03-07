@@ -124,6 +124,11 @@ AGENT_CONFIGS: Dict[str, AgentConfig] = {
         name="Security Guard",
         weight=0.05,
     ),
+    "continuous_learner": AgentConfig(
+        name="Continuous Learner",
+        weight=0.10,
+        enabled=True,
+    ),
 }
 
 CONSENSUS_THRESHOLD = 0.60  # Minimum weighted consensus to execute

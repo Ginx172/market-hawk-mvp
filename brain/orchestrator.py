@@ -5,18 +5,52 @@ Execution Location: market-hawk-mvp/brain/
 Purpose: THE BRAIN - Central Orchestrator for Multi-Agent Trading System
 Hardware Optimization: Intel i7-9700F, NVIDIA GTX 1070 8GB VRAM, 64GB DDR4
 Creation Date: 2026-03-01
-Last Modified: 2026-03-01
+Last Modified: 2026-03-07
 """
 
 import json
 import asyncio
 import logging
 from datetime import datetime
+from enum import Enum
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 logger = logging.getLogger("market_hawk.brain")
+
+
+# ============================================================
+# AGENT CATEGORIES — determine weight multiplier in consensus
+# ============================================================
+
+class AgentCategory(str, Enum):
+    """Agent reliability category for weighted consensus.
+
+    ML_MODEL: Agent uses trained ML model(s) — highest reliability.
+    HEURISTIC: Agent uses rule-based logic, data analysis, or LLM — medium.
+    STUB: Agent is not implemented — excluded from consensus.
+    """
+    ML_MODEL = "ml_model"       # weight multiplier = 2
+    HEURISTIC = "heuristic"     # weight multiplier = 1
+    STUB = "stub"               # weight multiplier = 0 (excluded)
+
+
+# Maps agent_id -> category. Agents not listed default to HEURISTIC.
+AGENT_CATEGORY_MAP: Dict[str, AgentCategory] = {
+    "ml_signal_engine": AgentCategory.ML_MODEL,
+    "knowledge_advisor": AgentCategory.HEURISTIC,
+    "news_analyzer": AgentCategory.HEURISTIC,
+    "security_guard": AgentCategory.HEURISTIC,
+    "continuous_learner": AgentCategory.STUB,
+}
+
+# Weight multiplier per category
+CATEGORY_WEIGHT_MULTIPLIER: Dict[AgentCategory, float] = {
+    AgentCategory.ML_MODEL: 2.0,
+    AgentCategory.HEURISTIC: 1.0,
+    AgentCategory.STUB: 0.0,
+}
 
 
 @dataclass
@@ -41,6 +75,8 @@ class BrainDecision:
     action: str
     consensus_score: float
     approved: bool
+    active_agents: List[str] = field(default_factory=list)
+    excluded_agents: List[Dict[str, str]] = field(default_factory=list)
     position_size: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
@@ -61,7 +97,15 @@ class Brain:
 
     Coordinates specialized agents, applies weighted consensus voting,
     and makes final trading decisions with full audit trail.
+
+    Consensus weighting:
+        effective_weight = config.weight * category_multiplier
+        - ML_MODEL agents get 2x multiplier (trained models)
+        - HEURISTIC agents get 1x multiplier (rules/LLM)
+        - STUB agents get 0x multiplier (auto-excluded)
+
     Risk Manager is treated specially - it gates decisions but doesn't vote.
+    Stub agents are auto-detected via NOT_IMPLEMENTED status and excluded.
     """
 
     # Agents that DON'T participate in consensus voting
@@ -82,18 +126,48 @@ class Brain:
     def register_agent(self, agent_id: str, agent_instance: Any) -> None:
         """Register an agent with the Brain."""
         self.agents[agent_id] = agent_instance
-        role = "GATEKEEPER" if agent_id in self.NON_VOTING_AGENTS else "VOTER"
+        category = AGENT_CATEGORY_MAP.get(agent_id, AgentCategory.HEURISTIC)
+        if agent_id in self.NON_VOTING_AGENTS:
+            role = "GATEKEEPER"
+        elif category == AgentCategory.STUB:
+            role = "STUB (excluded from consensus)"
+        else:
+            multiplier = CATEGORY_WEIGHT_MULTIPLIER[category]
+            role = f"VOTER [{category.value}, x{multiplier:.0f}]"
         logger.info("Agent registered: %s [%s] (total: %d)", agent_id, role, len(self.agents))
 
-    async def query_agents(self, symbol: str, context: Dict = None) -> List[AgentResponse]:
-        """Query all VOTING agents for their recommendations."""
-        responses = []
+    def _get_agent_category(self, agent_id: str) -> AgentCategory:
+        """Get the category for an agent, checking the static map first."""
+        return AGENT_CATEGORY_MAP.get(agent_id, AgentCategory.HEURISTIC)
+
+    def _is_stub_response(self, response: dict) -> bool:
+        """Check if an agent response indicates it is a stub (NOT_IMPLEMENTED)."""
+        return response.get("status") == "NOT_IMPLEMENTED"
+
+    async def query_agents(self, symbol: str, context: Dict = None) -> tuple:
+        """Query all VOTING agents for their recommendations.
+
+        Returns:
+            (responses, active_agents, excluded_agents) tuple.
+            - responses: list of AgentResponse from active agents only
+            - active_agents: list of agent_id strings that voted
+            - excluded_agents: list of dicts {"agent": id, "reason": str}
+        """
+        responses: List[AgentResponse] = []
+        active_agents: List[str] = []
+        excluded_agents: List[Dict[str, str]] = []
         context = context or {}
 
         for agent_id, agent in self.agents.items():
             # Skip non-voting agents (risk_manager is called separately)
             if agent_id in self.NON_VOTING_AGENTS:
                 continue
+
+            # Check static category — skip known stubs before calling
+            category = self._get_agent_category(agent_id)
+            if category == AgentCategory.STUB:
+                # Still call analyze() to confirm stub status dynamically
+                pass
 
             try:
                 response = None
@@ -112,34 +186,65 @@ class Brain:
 
                 if response is None:
                     logger.warning("Agent %s has no callable method", agent_id)
+                    excluded_agents.append({
+                        "agent": agent_id,
+                        "reason": "no callable method (analyze/predict/query)",
+                    })
                     continue
 
+                # Convert to dict for stub check
+                if isinstance(response, AgentResponse):
+                    resp_dict = asdict(response)
+                elif isinstance(response, dict):
+                    resp_dict = response
+                else:
+                    logger.warning("Agent %s returned unexpected type: %s",
+                                   agent_id, type(response).__name__)
+                    excluded_agents.append({
+                        "agent": agent_id,
+                        "reason": f"unexpected return type: {type(response).__name__}",
+                    })
+                    continue
+
+                # Dynamic stub detection
+                if self._is_stub_response(resp_dict):
+                    logger.info("Agent %s excluded: NOT_IMPLEMENTED", agent_id)
+                    excluded_agents.append({
+                        "agent": agent_id,
+                        "reason": f"NOT_IMPLEMENTED — {resp_dict.get('reasoning', 'stub')}",
+                    })
+                    continue
+
+                # Agent is active — build AgentResponse
                 if isinstance(response, AgentResponse):
                     responses.append(response)
-                elif isinstance(response, dict):
+                else:
                     responses.append(AgentResponse(
                         agent_name=agent_id,
-                        recommendation=response.get("recommendation", "HOLD"),
-                        confidence=response.get("confidence", 0.0),
-                        reasoning=response.get("reasoning", ""),
-                        metadata=response.get("metadata", {})
+                        recommendation=resp_dict.get("recommendation", "HOLD"),
+                        confidence=resp_dict.get("confidence", 0.0),
+                        reasoning=resp_dict.get("reasoning", ""),
+                        metadata=resp_dict.get("metadata", {})
                     ))
+                active_agents.append(agent_id)
 
             except Exception as e:
                 logger.error("Agent %s failed: %s", agent_id, str(e))
-                responses.append(AgentResponse(
-                    agent_name=agent_id,
-                    recommendation="HOLD",
-                    confidence=0.0,
-                    reasoning=f"Agent error: {str(e)}"
-                ))
+                excluded_agents.append({
+                    "agent": agent_id,
+                    "reason": f"runtime error: {str(e)}",
+                })
 
-        return responses
+        return responses, active_agents, excluded_agents
 
     def calculate_consensus(self, responses: List[AgentResponse]) -> float:
-        """
-        Weighted consensus: BUY=+1, SELL=-1, HOLD=0
-        Returns score between -1.0 and 1.0
+        """Weighted consensus with category-based multipliers.
+
+        effective_weight = config.weight * category_multiplier
+        ML_MODEL agents (x2) have more influence than HEURISTIC (x1).
+
+        BUY=+1, SELL=-1, HOLD=0.
+        Returns score between -1.0 and 1.0.
         """
         direction_map = {"BUY": 1.0, "SELL": -1.0, "HOLD": 0.0}
         total_weight = 0.0
@@ -147,11 +252,21 @@ class Brain:
 
         for response in responses:
             config = self.agent_configs.get(response.agent_name)
-            weight = config.weight if config else 0.1
+            base_weight = config.weight if config else 0.1
+            category = self._get_agent_category(response.agent_name)
+            multiplier = CATEGORY_WEIGHT_MULTIPLIER.get(category, 1.0)
+            effective_weight = base_weight * multiplier
+
             direction = direction_map.get(response.recommendation.upper(), 0.0)
 
-            weighted_sum += weight * response.confidence * direction
-            total_weight += weight
+            weighted_sum += effective_weight * response.confidence * direction
+            total_weight += effective_weight
+
+            logger.debug("  Vote: %s -> %s (conf=%.2f, base_w=%.2f, "
+                         "cat=%s, mult=%.1f, eff_w=%.3f)",
+                         response.agent_name, response.recommendation,
+                         response.confidence, base_weight,
+                         category.value, multiplier, effective_weight)
 
         return weighted_sum / total_weight if total_weight > 0 else 0.0
 
@@ -159,9 +274,17 @@ class Brain:
         """Full pipeline: Query agents -> Consensus -> Risk check -> Log."""
         logger.info("=== BRAIN DECISION START: %s ===", symbol)
 
-        # 1. Query voting agents
-        responses = await self.query_agents(symbol, context)
-        logger.info("Received %d agent votes", len(responses))
+        # 1. Query voting agents (now returns active/excluded lists)
+        responses, active_agents, excluded_agents = await self.query_agents(
+            symbol, context
+        )
+        logger.info("Received %d agent votes | active=%s | excluded=%d",
+                     len(responses),
+                     active_agents,
+                     len(excluded_agents))
+
+        for exc in excluded_agents:
+            logger.info("  Excluded: %s — %s", exc["agent"], exc["reason"])
 
         # 2. Consensus
         consensus = self.calculate_consensus(responses)
@@ -197,26 +320,44 @@ class Brain:
             action=action if approved else "HOLD",
             consensus_score=consensus,
             approved=approved,
+            active_agents=active_agents,
+            excluded_agents=excluded_agents,
             position_size=position_size,
             stop_loss=stop_loss,
             take_profit=take_profit,
             agent_votes=[asdict(r) for r in responses],
-            reasoning=self._build_reasoning(responses, consensus, approved),
+            reasoning=self._build_reasoning(
+                responses, consensus, approved, active_agents, excluded_agents
+            ),
             risk_check=risk_check,
         )
 
         # 6. Log
         self._log_decision(decision)
 
-        logger.info("=== DECISION: %s %s (consensus=%.4f, approved=%s) ===",
-                     decision.action, symbol, consensus, approved)
+        logger.info("=== DECISION: %s %s (consensus=%.4f, approved=%s, "
+                     "active=%d, excluded=%d) ===",
+                     decision.action, symbol, consensus, approved,
+                     len(active_agents), len(excluded_agents))
         return decision
 
-    def _build_reasoning(self, responses, consensus, approved):
+    def _build_reasoning(self, responses, consensus, approved,
+                         active_agents, excluded_agents):
         parts = [f"Consensus: {consensus:.4f}"]
+        parts.append(f"Active agents ({len(active_agents)}): "
+                     f"{', '.join(active_agents) if active_agents else 'none'}")
+
         for r in responses:
-            parts.append(f"  {r.agent_name}: {r.recommendation} "
-                         f"(conf={r.confidence:.2f})")
+            category = self._get_agent_category(r.agent_name)
+            multiplier = CATEGORY_WEIGHT_MULTIPLIER.get(category, 1.0)
+            parts.append(f"  {r.agent_name} [{category.value}, x{multiplier:.0f}]: "
+                         f"{r.recommendation} (conf={r.confidence:.2f})")
+
+        if excluded_agents:
+            parts.append(f"Excluded agents ({len(excluded_agents)}):")
+            for exc in excluded_agents:
+                parts.append(f"  {exc['agent']}: {exc['reason']}")
+
         if not approved:
             parts.append("  >>> BLOCKED by Risk Manager")
         return "\n".join(parts)
