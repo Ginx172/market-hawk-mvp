@@ -233,16 +233,9 @@ class MarketDataFetcher:
         result["volume_SMA"] = pd.Series(volume).rolling(20).mean()
         result["volume_ratio"] = volume / result["volume_SMA"].values
 
-        # OBV
-        obv = np.zeros(len(close))
-        for i in range(1, len(close)):
-            if close[i] > close[i-1]:
-                obv[i] = obv[i-1] + volume[i]
-            elif close[i] < close[i-1]:
-                obv[i] = obv[i-1] - volume[i]
-            else:
-                obv[i] = obv[i-1]
-        result["OBV"] = obv
+        # OBV (vectorized: sign of price change * volume, then cumsum)
+        price_direction = np.sign(np.diff(close, prepend=close[0]))
+        result["OBV"] = np.cumsum(price_direction * volume)
 
         # --- Spreads ---
         result["HL_spread"] = high - low
@@ -260,12 +253,10 @@ class MarketDataFetcher:
             result["hour"] = 0
             result["day_of_week"] = 0
 
-        result["is_london_session"] = result["hour"].apply(
-            lambda h: 1 if 8 <= h <= 16 else 0)
-        result["is_ny_session"] = result["hour"].apply(
-            lambda h: 1 if 13 <= h <= 21 else 0)
-        result["is_asia_session"] = result["hour"].apply(
-            lambda h: 1 if 0 <= h <= 8 else 0)
+        hour = result["hour"].values
+        result["is_london_session"] = ((hour >= 8) & (hour <= 16)).astype(int)
+        result["is_ny_session"] = ((hour >= 13) & (hour <= 21)).astype(int)
+        result["is_asia_session"] = (hour <= 8).astype(int)
 
         # --- Meta ---
         result["source_file"] = 0  # Numeric placeholder (was filename in training)
