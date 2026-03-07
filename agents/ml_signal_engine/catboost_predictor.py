@@ -21,13 +21,46 @@ AVAILABLE MODELS (from G drive):
 """
 
 import gc
-import pickle
 import logging
 from typing import Dict, Optional, Any, List
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import joblib
+
 logger = logging.getLogger("market_hawk.ml_signal")
+
+# Directoare trusted din care se pot incarca modele .pkl
+# Orice path in afara acestor directoare va fi refuzat
+_TRUSTED_MODEL_DIRS: List[Path] = []
+
+
+def _init_trusted_dirs() -> None:
+    """Populate trusted dirs from config (lazy, called once)."""
+    if _TRUSTED_MODEL_DIRS:
+        return
+    try:
+        from config.settings import ML_CONFIG
+        base = Path(ML_CONFIG.models_base_dir)
+        if base.exists():
+            _TRUSTED_MODEL_DIRS.append(base.resolve())
+    except Exception:
+        pass
+    # Fallback: allow paths already declared in MODEL_REGISTRY
+    for entry in MODEL_REGISTRY.values():
+        p = Path(entry["path"]).parent.resolve()
+        if p not in _TRUSTED_MODEL_DIRS:
+            _TRUSTED_MODEL_DIRS.append(p)
+
+
+def _is_trusted_path(file_path: Path) -> bool:
+    """Verify that file_path is inside a trusted model directory."""
+    _init_trusted_dirs()
+    resolved = file_path.resolve()
+    return any(
+        resolved == trusted or trusted in resolved.parents
+        for trusted in _TRUSTED_MODEL_DIRS
+    )
 
 
 # ============================================================
@@ -170,8 +203,10 @@ class MLSignalEngine:
                 model = CatBoostClassifier()
                 model.load_model(str(model_path))
             elif entry["type"] == "pickle":
-                with open(model_path, "rb") as f:
-                    obj = pickle.load(f)
+                if not _is_trusted_path(model_path):
+                    logger.error("Refused to load model from untrusted path: %s", model_path)
+                    return False
+                obj = joblib.load(model_path)
                 # Handle dict-wrapped models (e.g., {'model': CatBoostClassifier, 'features': [...]})
                 if isinstance(obj, dict) and 'model' in obj:
                     model = obj['model']
@@ -190,9 +225,11 @@ class MLSignalEngine:
             if entry.get("scaler"):
                 scaler_path = Path(entry["scaler"])
                 if scaler_path.exists():
-                    with open(scaler_path, "rb") as f:
-                        self._scalers[model_name] = pickle.load(f)
-                    logger.info("Loaded scaler for %s", model_name)
+                    if not _is_trusted_path(scaler_path):
+                        logger.error("Refused to load scaler from untrusted path: %s", scaler_path)
+                    else:
+                        self._scalers[model_name] = joblib.load(scaler_path)
+                        logger.info("Loaded scaler for %s", model_name)
 
             self._initialized = True
             logger.info("✅ Model loaded: %s (accuracy: %s) — %s",
