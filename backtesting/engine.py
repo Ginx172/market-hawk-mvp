@@ -27,6 +27,7 @@ import pandas as pd
 
 from backtesting.strategies import StrategyBase, TradeSignal, Signal
 from backtesting.data_loader import HistoricalDataLoader
+from config.settings import RISK_CONFIG
 
 logger = logging.getLogger("market_hawk.backtest.engine")
 
@@ -153,7 +154,8 @@ class BacktestEngine:
                  slippage_pct: float = 0.0005,     # 0.05% slippage
                  max_position_pct: float = 0.10,   # Max 10% per position
                  allow_short: bool = True,
-                 allow_pyramiding: bool = False):
+                 allow_pyramiding: bool = False,
+                 max_drawdown_pct: Optional[float] = None):
         """
         Args:
             initial_capital: Starting cash
@@ -162,6 +164,7 @@ class BacktestEngine:
             max_position_pct: Max fraction of equity per trade
             allow_short: Enable short selling
             allow_pyramiding: Allow multiple entries in same direction
+            max_drawdown_pct: Max drawdown before circuit breaker (default from RiskConfig)
         """
         self.initial_capital = _to_decimal(initial_capital)
         self.commission_pct = _to_decimal(commission_pct)
@@ -169,6 +172,7 @@ class BacktestEngine:
         self.max_position_pct = _to_decimal(max_position_pct)
         self.allow_short = allow_short
         self.allow_pyramiding = allow_pyramiding
+        self.max_drawdown_pct = max_drawdown_pct if max_drawdown_pct is not None else RISK_CONFIG.max_drawdown_pct
 
         # State
         self._cash: Decimal = self.initial_capital
@@ -176,6 +180,7 @@ class BacktestEngine:
         self._trades: List[BacktestTrade] = []
         self._trade_counter = 0
         self._equity_curve: List[float] = []
+        self._halted: bool = False
 
     # ============================================================
     # MAIN RUN METHOD
@@ -210,6 +215,8 @@ class BacktestEngine:
         self._trades = []
         self._trade_counter = 0
         self._equity_curve = []
+        self._halted = False
+        _peak_equity = float(self.initial_capital)
 
         # Pre-compute indicators
         logger.info("Pre-computing indicators...")
@@ -228,7 +235,21 @@ class BacktestEngine:
                 if exit_signal:
                     self._close_position(df, idx, current_price, exit_signal)
 
-            # 2. Generate strategy signal
+            # 2. Generate strategy signal (skip if halted by circuit breaker)
+            if self._halted:
+                equity = self._calculate_equity(current_price)
+                equity_f = float(equity)
+                self._equity_curve.append(equity_f)
+                if equity_f > _peak_equity:
+                    _peak_equity = equity_f
+                if idx % report_interval == 0 and idx > 0:
+                    pct = idx / total_bars * 100
+                    logger.info("  [%5.1f%%] bar %s/%s — HALTED (circuit breaker)",
+                                pct, f"{idx:,}", f"{total_bars:,}")
+                if idx % 100_000 == 0 and idx > 0:
+                    gc.collect()
+                continue
+
             signal = strategy.generate_signal(df, idx)
 
             # 3. Process signal
@@ -246,7 +267,22 @@ class BacktestEngine:
 
             # 4. Track equity (as float for numpy-based metrics later)
             equity = self._calculate_equity(current_price)
-            self._equity_curve.append(float(equity))
+            equity_f = float(equity)
+            self._equity_curve.append(equity_f)
+
+            # 4b. Max drawdown circuit breaker
+            if equity_f > _peak_equity:
+                _peak_equity = equity_f
+            if _peak_equity > 0:
+                current_dd = (_peak_equity - equity_f) / _peak_equity
+                if current_dd > self.max_drawdown_pct and not self._halted:
+                    logger.warning(
+                        "CIRCUIT BREAKER: max drawdown exceeded (%.2f%% > %.2f%%) at bar %d",
+                        current_dd * 100, self.max_drawdown_pct * 100, idx)
+                    if self._position is not None:
+                        self._close_position(df, idx, current_price, "circuit_breaker")
+                        self._equity_curve[-1] = float(self._calculate_equity(current_price))
+                    self._halted = True
 
             # 5. Progress reporting
             if idx % report_interval == 0 and idx > 0:

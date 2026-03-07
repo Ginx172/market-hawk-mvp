@@ -37,6 +37,8 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 
+from config.settings import RISK_CONFIG
+
 logger = logging.getLogger("market_hawk.paper_trader")
 
 # Constante Decimal reutilizabile
@@ -390,6 +392,15 @@ class PaperTrader:
                        consensus: float, position_size: float,
                        stop_loss: float, take_profit: float) -> None:
         """Open a new paper position."""
+        # Circuit breaker: refuse new trades if max drawdown exceeded
+        if self.portfolio.max_drawdown > RISK_CONFIG.max_drawdown_pct:
+            logger.warning(
+                "CIRCUIT BREAKER: refusing %s %s — max drawdown exceeded (%.2f%% > %.2f%%)",
+                action, symbol,
+                self.portfolio.max_drawdown * 100,
+                RISK_CONFIG.max_drawdown_pct * 100)
+            return
+
         pos_size_d = _to_decimal(position_size)
         trade_value = self.portfolio.cash * pos_size_d
 

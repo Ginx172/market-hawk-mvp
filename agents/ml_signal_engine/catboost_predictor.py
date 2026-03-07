@@ -54,13 +54,31 @@ def _init_trusted_dirs() -> None:
 
 
 def _is_trusted_path(file_path: Path) -> bool:
-    """Verify that file_path is inside a trusted model directory."""
+    """Verify that file_path is inside a trusted model directory.
+
+    Rejects symlinks and paths containing '..' after resolution.
+    """
     _init_trusted_dirs()
+
+    # Reject symlinks (could point outside trusted dirs)
+    if file_path.is_symlink():
+        logger.warning("Rejected symlink path: %s", file_path)
+        return False
+
     resolved = file_path.resolve()
-    return any(
+
+    # Reject if resolved path still contains '..' components
+    if ".." in resolved.parts:
+        logger.warning("Rejected path with traversal components: %s", file_path)
+        return False
+
+    is_trusted = any(
         resolved == trusted or trusted in resolved.parents
         for trusted in _TRUSTED_MODEL_DIRS
     )
+    if not is_trusted:
+        logger.warning("Rejected untrusted path: %s (resolved: %s)", file_path, resolved)
+    return is_trusted
 
 
 # ============================================================

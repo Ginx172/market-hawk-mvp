@@ -11,12 +11,16 @@ Usage:
     streamlit run dashboard/app.py
 """
 
+import os
 import sys
 import json
+import logging
 import time
 import asyncio
 from pathlib import Path
 from datetime import datetime
+
+import bleach
 
 # Project root
 ROOT = Path(__file__).parent.parent
@@ -36,6 +40,78 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ============================================================
+# AUTHENTICATION GATE — SessionManager + rate limiting
+# ============================================================
+
+_DASHBOARD_PASSWORD = os.environ.get("MH_DASHBOARD_PASSWORD", "")
+_auth_logger = logging.getLogger("market_hawk.dashboard.auth")
+
+# Rate limiting: max 5 attempts per 15 minutes (in-memory)
+_MAX_LOGIN_ATTEMPTS = 5
+_LOCKOUT_SECONDS = 15 * 60  # 15 minutes
+
+if "login_attempts" not in st.session_state:
+    st.session_state.login_attempts = 0
+    st.session_state.first_attempt_time = 0.0
+
+if _DASHBOARD_PASSWORD:
+    from config.session import SessionManager
+
+    if "session_mgr" not in st.session_state:
+        st.session_state.session_mgr = SessionManager(timeout_minutes=30)
+    _session_mgr: SessionManager = st.session_state.session_mgr
+
+    # Check existing session token
+    _has_valid_session = False
+    if "session_token" in st.session_state:
+        _sess = _session_mgr.get_session(st.session_state.session_token)
+        if _sess is not None:
+            _has_valid_session = True
+        else:
+            del st.session_state.session_token
+            _auth_logger.info("Session expired, requiring re-login")
+
+    if not _has_valid_session:
+        st.title("Market Hawk — Login")
+
+        # Check rate limiting
+        now = time.time()
+        if (st.session_state.login_attempts >= _MAX_LOGIN_ATTEMPTS
+                and (now - st.session_state.first_attempt_time) < _LOCKOUT_SECONDS):
+            remaining = int(_LOCKOUT_SECONDS - (now - st.session_state.first_attempt_time))
+            st.error(f"Too many attempts. Try again in {remaining // 60}m {remaining % 60}s.")
+            _auth_logger.warning("Login locked out — too many failed attempts")
+            st.stop()
+
+        # Reset counter if lockout period passed
+        if (now - st.session_state.first_attempt_time) >= _LOCKOUT_SECONDS:
+            st.session_state.login_attempts = 0
+            st.session_state.first_attempt_time = 0.0
+
+        pwd = st.text_input("Dashboard password:", type="password", key="login_pwd")
+        if st.button("Login"):
+            if st.session_state.login_attempts == 0:
+                st.session_state.first_attempt_time = now
+
+            if pwd == _DASHBOARD_PASSWORD:
+                token = _session_mgr.create_session(user_id="dashboard", role="ADMIN")
+                st.session_state.session_token = token
+                st.session_state.login_attempts = 0
+                _auth_logger.info("Login successful")
+                st.rerun()
+            else:
+                st.session_state.login_attempts += 1
+                remaining_attempts = _MAX_LOGIN_ATTEMPTS - st.session_state.login_attempts
+                _auth_logger.warning("Failed login attempt %d/%d",
+                                     st.session_state.login_attempts, _MAX_LOGIN_ATTEMPTS)
+                if remaining_attempts > 0:
+                    st.error(f"Invalid password. {remaining_attempts} attempts remaining.")
+                else:
+                    st.error("Too many attempts. Account locked for 15 minutes.")
+                    st.rerun()
+        st.stop()
 
 # ============================================================
 # CUSTOM CSS
@@ -279,15 +355,16 @@ def page_live_scanner():
             if r["votes"]:
                 for vote in r["votes"]:
                     v_emoji = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}.get(
-                        vote.get("recommendation", ""), "❓")
-                    agent = vote.get("agent_name", "unknown")
+                        vote.get("recommendation", ""), "?")
+                    agent = bleach.clean(str(vote.get("agent_name", "unknown")), tags=[], strip=True)
                     conf = vote.get("confidence", 0)
-                    reason = vote.get("reasoning", "")[:100]
+                    reason = bleach.clean(str(vote.get("reasoning", ""))[:100], tags=[], strip=True)
+                    rec = bleach.clean(str(vote.get("recommendation", "?")), tags=[], strip=True)
 
                     st.markdown(
                         f'<div class="agent-vote">'
                         f'{v_emoji} <b>{agent}</b> — '
-                        f'{vote.get("recommendation", "?")} '
+                        f'{rec} '
                         f'(conf: {conf:.2f})<br>'
                         f'<small>{reason}</small></div>',
                         unsafe_allow_html=True,
@@ -604,12 +681,13 @@ def page_live_ticker():
     avg_vol = int(df["Volume"].astype(float).mean())
 
     color = "#00d26a" if change >= 0 else "#ff4757"
+    safe_symbol = bleach.clean(str(symbol), tags=[], strip=True)
 
     st.markdown(
         f'<div style="background:linear-gradient(135deg,#1a1f2e,#141824);'
         f'border:1px solid #2d3548;border-radius:12px;padding:15px 25px;'
         f'display:flex;align-items:center;gap:30px;margin-bottom:10px;">'
-        f'<span style="font-size:2.2em;font-weight:bold;color:white;">{symbol}</span>'
+        f'<span style="font-size:2.2em;font-weight:bold;color:white;">{safe_symbol}</span>'
         f'<span style="font-size:2.2em;font-weight:bold;color:{color};">${last_price:,.2f}</span>'
         f'<span style="font-size:1.2em;color:{color};">{change:+,.2f} ({change_pct:+.2f}%)</span>'
         f'<span style="color:#888;font-size:0.9em;">'
@@ -772,7 +850,7 @@ def page_quick_trade():
             "BTCUSDT", "ETHUSDT", "GOLD", "SPY", "QQQ",
         ], key="qt_symbol")
     with col2:
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.write("")  # Spacer
         refresh = st.button("🔄 Refresh", use_container_width=True)
 
     # Fetch live data
