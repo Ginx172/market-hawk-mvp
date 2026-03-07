@@ -8,6 +8,8 @@ Last Modified: 2026-03-01
 """
 
 import os
+import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, Optional
@@ -202,6 +204,49 @@ LOG_FORMAT = "%(asctime)s | %(name)-20s | %(levelname)-8s | %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 LOG_FILE = LOGS_DIR / "market_hawk.log"
 DECISION_LOG = LOGS_DIR / "decisions.jsonl"
+
+
+# ============================================================
+# CENTRALIZED LOGGING SETUP
+# ============================================================
+
+def setup_logging(level: int = logging.INFO) -> None:
+    """Configure root logger with RotatingFileHandler + console handler.
+
+    Args:
+        level: Logging level for both handlers.
+
+    Log files rotate at 100 MB, keeping the last 10 backups.
+    Call once at application startup (paper_trader, dashboard, backtest CLI).
+    """
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    root = logging.getLogger()
+
+    # Evita adaugarea duplicata de handlers la apeluri repetate
+    if any(isinstance(h, RotatingFileHandler) for h in root.handlers):
+        return
+
+    root.setLevel(level)
+
+    formatter = logging.Formatter(LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
+
+    # File handler cu rotatie
+    file_handler = RotatingFileHandler(
+        LOG_FILE,
+        maxBytes=100 * 1024 * 1024,   # 100 MB
+        backupCount=10,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(level)
+    file_handler.setFormatter(formatter)
+    root.addHandler(file_handler)
+
+    # Console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
+    root.addHandler(console_handler)
 
 
 # ============================================================

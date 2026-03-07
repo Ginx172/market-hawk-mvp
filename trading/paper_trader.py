@@ -514,9 +514,10 @@ class PaperTrader:
     def _log_trade_event(self, event: str, symbol: str, side: str,
                           price: Decimal, qty: Decimal, consensus: float = 0,
                           pnl: Decimal = ZERO, reason: str = "") -> None:
-        """Log trade event to JSONL."""
+        """Log trade event to JSONL (encrypted if MH_ENCRYPTION_KEY is set)."""
         try:
-            self.TRADE_LOG.parent.mkdir(parents=True, exist_ok=True)
+            from trading.crypto_log import write_log_line
+
             entry = {
                 "timestamp": datetime.utcnow().isoformat(),
                 "event": event,
@@ -529,8 +530,7 @@ class PaperTrader:
                 "reason": reason,
                 "equity": _d_to_json(self.portfolio.equity),
             }
-            with open(self.TRADE_LOG, "a") as f:
-                f.write(json.dumps(entry) + "\n")
+            write_log_line(self.TRADE_LOG, json.dumps(entry))
         except Exception as e:
             logger.error("Failed to log trade: %s", str(e))
 

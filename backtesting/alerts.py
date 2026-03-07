@@ -405,42 +405,56 @@ class AlertManager:
         print(f"{colour}{'='*70}{reset}\n")
 
     # ---------- DESKTOP (Windows Toast) ----------
+    @staticmethod
+    def _sanitize_ps_string(text: str) -> str:
+        """Strip characters that could escape a PowerShell single-quoted string.
+
+        Single-quoted strings in PowerShell have no escape sequences except ''
+        for a literal quote. We replace ' with '' and strip control chars.
+        """
+        import re
+        # Elimina caractere de control (tab/newline pastrate ca spatiu)
+        cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+        cleaned = cleaned.replace('\n', ' ').replace('\r', '')
+        # Escape single quotes pentru PowerShell single-quoted strings
+        cleaned = cleaned.replace("'", "''")
+        return cleaned
+
     def _send_desktop(self, alert: Alert) -> None:
         """Send Windows 10/11 toast notification via PowerShell."""
         if os.name != "nt":
             logger.debug("Desktop notifications only supported on Windows")
             return
 
-        title = f"Market Hawk — {alert.signal} {alert.symbol}"
-        body = (
-            f"Score: {alert.score:+.3f} | Conf: {alert.confidence:.0%}\n"
-            f"Price: ${alert.price:,.2f}\n"
+        title = self._sanitize_ps_string(
+            f"Market Hawk -- {alert.signal} {alert.symbol}"
+        )
+        body = self._sanitize_ps_string(
+            f"Score: {alert.score:+.3f} | Conf: {alert.confidence:.0%} "
+            f"Price: ${alert.price:,.2f} "
             f"{alert.reason[:120]}"
         )
 
-        # Escape quotes for PowerShell
-        title = title.replace('"', '`"')
-        body = body.replace('"', '`"')
-
-        # Use PowerShell BurntToast module if available, else fallback
-        # to basic .NET toast
-        ps_script = f'''
-        $ErrorActionPreference = "SilentlyContinue"
-        if (Get-Module -ListAvailable -Name BurntToast) {{
-            Import-Module BurntToast
-            New-BurntToastNotification -Text "{title}", "{body}" -AppLogo "$null"
-        }} else {{
-            [void] [System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
-            $balloon = New-Object System.Windows.Forms.NotifyIcon
-            $balloon.Icon = [System.Drawing.SystemIcons]::Information
-            $balloon.BalloonTipTitle = "{title}"
-            $balloon.BalloonTipText = "{body}"
-            $balloon.Visible = $true
-            $balloon.ShowBalloonTip(5000)
-            Start-Sleep -Seconds 6
-            $balloon.Dispose()
-        }}
-        '''
+        # Folosim single-quoted strings in PowerShell (fara interpolare)
+        ps_script = (
+            "$ErrorActionPreference = 'SilentlyContinue'\n"
+            "$title = '" + title + "'\n"
+            "$body = '" + body + "'\n"
+            "if (Get-Module -ListAvailable -Name BurntToast) {\n"
+            "    Import-Module BurntToast\n"
+            "    New-BurntToastNotification -Text $title, $body -AppLogo $null\n"
+            "} else {\n"
+            "    [void] [System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')\n"
+            "    $balloon = New-Object System.Windows.Forms.NotifyIcon\n"
+            "    $balloon.Icon = [System.Drawing.SystemIcons]::Information\n"
+            "    $balloon.BalloonTipTitle = $title\n"
+            "    $balloon.BalloonTipText = $body\n"
+            "    $balloon.Visible = $true\n"
+            "    $balloon.ShowBalloonTip(5000)\n"
+            "    Start-Sleep -Seconds 6\n"
+            "    $balloon.Dispose()\n"
+            "}\n"
+        )
 
         try:
             subprocess.Popen(
@@ -490,10 +504,39 @@ class AlertManager:
             pass
 
     # ---------- WEBHOOK ----------
+    _WEBHOOK_DOMAIN_WHITELIST = {
+        "discord.com",
+        "discordapp.com",
+        "hooks.slack.com",
+        "api.telegram.org",
+    }
+
+    @classmethod
+    def _validate_webhook_url(cls, url: str) -> bool:
+        """Validate webhook URL against domain whitelist."""
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("https",):
+                logger.warning("Webhook rejected: non-HTTPS scheme %r", parsed.scheme)
+                return False
+            hostname = (parsed.hostname or "").lower()
+            return any(
+                hostname == domain or hostname.endswith("." + domain)
+                for domain in cls._WEBHOOK_DOMAIN_WHITELIST
+            )
+        except Exception:
+            return False
+
     def _send_webhook(self, alert: Alert) -> None:
         """Send alert via HTTP webhook (Slack/Discord/Telegram)."""
         if not self.webhook_url:
             logger.debug("Webhook URL not configured, skipping")
+            return
+
+        if not self._validate_webhook_url(self.webhook_url):
+            logger.warning("Webhook URL rejected — domain not in whitelist: %s",
+                           self.webhook_url[:80])
             return
 
         try:
