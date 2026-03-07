@@ -1,1 +1,50 @@
-{}
+{
+  "catboost_v2": {
+    "path": "G:\\......................AI_Models\\catboost_v2_advanced_20250724_011145.cbm",
+    "sha256": "00b6786c9a39ae932cf5f5b732f9b9084256c749c266099c3a5084740260e4c5"
+  },
+  "catboost_clean_75": {
+    "path": "G:\\......................AI_Models\\REBUILT_MODELS\\CatBoost_CLEAN_acc75.pkl",
+    "sha256": "308423d204374d45b8aa2803404e8c151a37fc3559bf0f1297c2bf7836f03cf0"
+  },
+  "catboost_ultra_75": {
+    "path": "G:\\......................AI_Models\\ULTRA_TUNED_MODELS\\CatBoost_ULTRA_acc75.pkl",
+    "sha256": "f9257079f24f43d9252118336378a7e0fa26eb25d280912f8ddba1734ba9c6da"
+  },
+  "catboost_commodities_82": {
+    "path": "G:\\......................AI_Models\\PER_CATEGORY_MODELS\\CatBoost_commodities_acc82.pkl",
+    "sha256": "fdc234acefe37b096db0b3f530b7804040faf693315641a8103b0e25be7e2e89"
+  },
+  "catboost_indices_76": {
+    "path": "G:\\......................AI_Models\\PER_CATEGORY_MODELS\\CatBoost_indices_acc76.pkl",
+    "sha256": "a78ad731fdfd455d26866a3b5b6ee294b44614d447bc1d7bde8b31ed28e216a3"
+  },
+  "catboost_crypto_56": {
+    "path": "G:\\......................AI_Models\\PER_CATEGORY_MODELS\\CatBoost_crypto_acc56.pkl",
+    "sha256": "ce39689e23910aa50243bef6a7bd42687f03c7112caced95846eee8ce9ef95d7"
+  },
+  "catboost_80plus": {
+    "path": "G:\\......................AI_Models\\Modele_AI_80_Plus\\CatBoost_model.pkl",
+    "sha256": "0545f6e037a2035fc4b82cedbe100c8d039b1e145d68a5641a1c3cd05415164f"
+  },
+  "catboost_80plus__scaler": {
+    "path": "G:\\......................AI_Models\\Modele_AI_80_Plus\\CatBoost_scaler.pkl",
+    "sha256": "4da1fd0bd0cc8a9106b8ec1446910982dfc911bd9941121fe8b578672cfd35a1"
+  },
+  "xgboost_80plus": {
+    "path": "G:\\......................AI_Models\\Modele_AI_80_Plus\\XGBoost_model.pkl",
+    "sha256": "03e0e91d96e1f3928254325e4f2facc49f672dc4aa638ea0b5d8299a9e0fd53f"
+  },
+  "xgboost_80plus__scaler": {
+    "path": "G:\\......................AI_Models\\Modele_AI_80_Plus\\XGBoost_scaler.pkl",
+    "sha256": "4da1fd0bd0cc8a9106b8ec1446910982dfc911bd9941121fe8b578672cfd35a1"
+  },
+  "extratrees_80plus": {
+    "path": "G:\\......................AI_Models\\Modele_AI_80_Plus\\ExtraTrees_model.pkl",
+    "sha256": "4fb2d0b05e0c3c08d5f57955bd07673542be74d6fcc8c6917134d9f1f959d288"
+  },
+  "extratrees_80plus__scaler": {
+    "path": "G:\\......................AI_Models\\Modele_AI_80_Plus\\ExtraTrees_scaler.pkl",
+    "sha256": "4da1fd0bd0cc8a9106b8ec1446910982dfc911bd9941121fe8b578672cfd35a1"
+  }
+}
