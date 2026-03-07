@@ -57,6 +57,16 @@ def _to_decimal(value: Any) -> Decimal:
     return D(str(value))
 
 
+def _validated_decimal(value: Any, name: str,
+                       min_val: Decimal = ZERO,
+                       max_val: Decimal = D("1000000000")) -> Decimal:
+    """Convert to Decimal with bounds validation. Raises ValueError if out of range."""
+    d = _to_decimal(value)
+    if d < min_val or d > max_val:
+        raise ValueError(f"{name}={d} out of bounds [{min_val}, {max_val}]")
+    return d
+
+
 def _d_to_json(value: Decimal) -> str:
     """Serialize Decimal to string for JSON (preserves precision)."""
     return str(value)
@@ -563,37 +573,59 @@ class PaperTrader:
         except Exception as e:
             logger.error("Failed to save state: %s", str(e))
 
+    _VALID_SIDES = {"LONG", "SHORT"}
+
     def _load_state(self) -> None:
-        """Load portfolio state from JSON."""
+        """Load portfolio state from JSON with validation."""
         if not self.SAVE_FILE.exists():
             return
         try:
             with open(self.SAVE_FILE) as f:
                 state = json.load(f)
-            self.portfolio.cash = D(str(state.get("cash", "100000")))
-            self.portfolio.peak_equity = D(str(state.get("peak_equity", "100000")))
-            self.portfolio.total_scans = state.get("total_scans", 0)
-            self.portfolio.total_signals = state.get("total_signals", 0)
 
-            # Restore open positions
+            if not isinstance(state, dict):
+                raise ValueError("State file root must be a JSON object")
+
+            self.portfolio.cash = _validated_decimal(
+                state.get("cash", "100000"), "cash", min_val=ZERO)
+            self.portfolio.peak_equity = _validated_decimal(
+                state.get("peak_equity", "100000"), "peak_equity", min_val=ZERO)
+            self.portfolio.total_scans = int(state.get("total_scans", 0))
+            self.portfolio.total_signals = int(state.get("total_signals", 0))
+
+            # Restore open positions with validation
             for sym, pos_data in state.get("positions", {}).items():
+                if not isinstance(pos_data, dict):
+                    logger.warning("Skipping invalid position data for %s", sym)
+                    continue
+
+                side = pos_data.get("side", "")
+                if side not in self._VALID_SIDES:
+                    logger.warning("Skipping position %s: invalid side %r", sym, side)
+                    continue
+
                 self.portfolio.positions[sym] = Position(
-                    symbol=pos_data["symbol"],
-                    side=pos_data["side"],
-                    entry_price=D(str(pos_data["entry_price"])),
-                    quantity=D(str(pos_data["quantity"])),
-                    entry_time=pos_data["entry_time"],
-                    stop_loss=pos_data["stop_loss"],
-                    take_profit=pos_data["take_profit"],
-                    consensus_at_entry=pos_data["consensus_at_entry"],
-                    current_price=D(str(pos_data.get("current_price", "0"))),
-                    unrealized_pnl=D(str(pos_data.get("unrealized_pnl", "0"))),
-                    unrealized_pnl_pct=pos_data.get("unrealized_pnl_pct", 0.0),
+                    symbol=str(pos_data.get("symbol", sym))[:20],
+                    side=side,
+                    entry_price=_validated_decimal(
+                        pos_data.get("entry_price", 0), "entry_price", min_val=ZERO),
+                    quantity=_validated_decimal(
+                        pos_data.get("quantity", 0), "quantity", min_val=ZERO),
+                    entry_time=str(pos_data.get("entry_time", "")),
+                    stop_loss=float(pos_data.get("stop_loss", 0.02)),
+                    take_profit=float(pos_data.get("take_profit", 0.04)),
+                    consensus_at_entry=float(pos_data.get("consensus_at_entry", 0.0)),
+                    current_price=_validated_decimal(
+                        pos_data.get("current_price", 0), "current_price", min_val=ZERO),
+                    unrealized_pnl=_to_decimal(pos_data.get("unrealized_pnl", 0)),
+                    unrealized_pnl_pct=float(pos_data.get("unrealized_pnl_pct", 0.0)),
                 )
 
             logger.info("Loaded portfolio state from %s (scans: %d, positions: %d)",
                          self.SAVE_FILE, self.portfolio.total_scans,
                          len(self.portfolio.positions))
+        except (ValueError, TypeError, KeyError) as e:
+            logger.warning("Invalid state data in %s: %s", self.SAVE_FILE, str(e))
         except Exception as e:
             logger.warning("Could not load state: %s", str(e))
 

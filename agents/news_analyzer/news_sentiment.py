@@ -98,7 +98,9 @@ class NewsFetcher:
             for feed_name, feed_url in self.RSS_FEEDS.items():
                 url = feed_url.format(symbol=symbol)
                 try:
-                    feed = feedparser.parse(url)
+                    import requests as _req
+                    resp = _req.get(url, timeout=10)
+                    feed = feedparser.parse(resp.content)
                     for entry in feed.entries[:max_articles]:
                         articles.append({
                             "title": entry.get("title", ""),

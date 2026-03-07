@@ -65,9 +65,17 @@ TICKER_MAP = {
 }
 
 
+import re
+
+_VALID_SYMBOL = re.compile(r'^[A-Za-z0-9=^.\-]{1,20}$')
+
+
 def get_yfinance_ticker(symbol: str) -> str:
-    """Convert user symbol to yfinance ticker."""
-    return TICKER_MAP.get(symbol.upper(), symbol)
+    """Convert user symbol to yfinance ticker. Validates format."""
+    cleaned = symbol.strip()
+    if not _VALID_SYMBOL.match(cleaned):
+        raise ValueError(f"Invalid symbol format: {symbol!r}")
+    return TICKER_MAP.get(cleaned.upper(), cleaned)
 
 
 def get_symbol_category(symbol: str) -> str:
@@ -123,7 +131,7 @@ class MarketDataFetcher:
                          symbol, ticker, period, interval)
 
             data = yf.download(ticker, period=period, interval=interval,
-                               progress=False, auto_adjust=False)
+                               progress=False, auto_adjust=False, timeout=30)
 
             if data.empty:
                 logger.warning("No data returned for %s", symbol)
