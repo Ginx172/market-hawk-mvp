@@ -46,5 +46,13 @@
   "extratrees_80plus__scaler": {
     "path": "G:\\......................AI_Models\\Modele_AI_80_Plus\\ExtraTrees_scaler.pkl",
     "sha256": "4da1fd0bd0cc8a9106b8ec1446910982dfc911bd9941121fe8b578672cfd35a1"
+  },
+  "catboost_retrained_20260308_140924": {
+    "path": "K:\\_DEV_MVP_2026\\Market_Hawk_3\\models\\retrained\\catboost_retrained_20260308_140924.cbm",
+    "sha256": "113ab91d6bc18226516f2288cca8782862e1c20296fa753792fefbb2324bd095"
+  },
+  "xgboost_retrained_20260308_140924": {
+    "path": "K:\\_DEV_MVP_2026\\Market_Hawk_3\\models\\retrained\\xgboost_retrained_20260308_140924.pkl",
+    "sha256": "6abc2284c26a470515b065cc335f21b5ed6f91eebbd0e91677a9ea7dd42c7e75"
   }
 }
