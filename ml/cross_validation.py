@@ -282,12 +282,22 @@ class ModelEvaluator:
             # Deep copy model to avoid state leakage between folds
             fold_model = copy.deepcopy(model)
 
-            # Fit — handle CatBoost verbose param
+            # Fit — handle CatBoost params (use_best_model needs eval_set)
             fit_kwargs: Dict[str, Any] = {}
             if hasattr(fold_model, "get_params"):
                 params = fold_model.get_params()
                 if "verbose" in params:
                     fit_kwargs["verbose"] = False
+                # CatBoost: use_best_model=True requires eval_set; pass it
+                if params.get("use_best_model"):
+                    fit_kwargs["eval_set"] = (X_test, y_test)
+                elif "use_best_model" in params:
+                    # Explicitly False — no eval_set needed
+                    pass
+                elif hasattr(fold_model, "_init_params"):
+                    # CatBoost default has use_best_model=True; disable it
+                    # to avoid crash when no eval_set is provided
+                    fold_model.set_params(use_best_model=False)
 
             fold_model.fit(X_train, y_train, **fit_kwargs)
 
