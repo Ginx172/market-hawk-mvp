@@ -299,6 +299,11 @@ class ModelEvaluator:
                     # to avoid crash when no eval_set is provided
                     fold_model.set_params(use_best_model=False)
 
+                # XGBoost: early_stopping_rounds requires eval_set
+                # Format: list of tuples [(X, y)], not a bare tuple
+                if params.get("early_stopping_rounds") and "eval_set" not in fit_kwargs:
+                    fit_kwargs["eval_set"] = [(X_test, y_test)]
+
             fold_model.fit(X_train, y_train, **fit_kwargs)
 
             # Predict
