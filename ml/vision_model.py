@@ -404,7 +404,7 @@ class ChartTrainer:
         if self.device.type == "cuda":
             logger.info("GPU: %s (%.1f GB VRAM)",
                          torch.cuda.get_device_name(0),
-                         torch.cuda.get_device_properties(0).total_mem / 1e9)
+                         torch.cuda.get_device_properties(0).total_memory / 1e9)
 
         # Loss function with class weights for imbalanced data
         self.criterion = nn.CrossEntropyLoss()
@@ -422,7 +422,7 @@ class ChartTrainer:
         )
 
         # Mixed precision scaler
-        self.scaler = torch.amp.GradScaler("cuda", enabled=(self.device.type == "cuda"))
+        self.scaler = torch.cuda.amp.GradScaler(enabled=(self.device.type == "cuda"))
         self.use_amp = self.device.type == "cuda"
 
         # DataLoaders (created with auto batch size)
@@ -509,7 +509,7 @@ class ChartTrainer:
             self.optimizer.zero_grad(set_to_none=True)
 
             try:
-                with torch.amp.autocast("cuda", enabled=self.use_amp):
+                with torch.cuda.amp.autocast(enabled=self.use_amp):
                     outputs = self.model(images)
                     loss = self.criterion(outputs, labels)
 
@@ -555,7 +555,7 @@ class ChartTrainer:
             images = images.to(self.device, non_blocking=True)
             labels = labels.to(self.device, non_blocking=True)
 
-            with torch.amp.autocast("cuda", enabled=self.use_amp):
+            with torch.cuda.amp.autocast(enabled=self.use_amp):
                 outputs = self.model(images)
                 loss = self.criterion(outputs, labels)
 
@@ -786,7 +786,7 @@ class ChartTrainer:
 
             for images, labels in self.val_loader:
                 images = images.to(self.device, non_blocking=True)
-                with torch.amp.autocast("cuda", enabled=self.use_amp):
+                with torch.cuda.amp.autocast(enabled=self.use_amp):
                     outputs = self.model(images)
                 _, predicted = outputs.max(1)
                 all_preds.extend(predicted.cpu().tolist())
@@ -887,7 +887,7 @@ def predict_chart(
 
     # Inference
     with torch.no_grad():
-        with torch.amp.autocast("cuda", enabled=(dev.type == "cuda")):
+        with torch.cuda.amp.autocast(enabled=(dev.type == "cuda")):
             logits = model(img_tensor)
             probs = torch.softmax(logits, dim=1).squeeze(0)
 
