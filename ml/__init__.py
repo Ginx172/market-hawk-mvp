@@ -1,1 +1,1 @@
-"""ML module — cross-validation and walk-forward optimization for Market Hawk 3."""
+"""ML module — cross-validation, walk-forward optimization, and vision models for Market Hawk 3."""
