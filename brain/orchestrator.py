@@ -228,11 +228,11 @@ class Brain:
                     ))
                 active_agents.append(agent_id)
 
-            except Exception as e:
-                logger.error("Agent %s failed: %s", agent_id, str(e))
+            except Exception:
+                logger.exception("Agent %s failed", agent_id)
                 excluded_agents.append({
                     "agent": agent_id,
-                    "reason": f"runtime error: {str(e)}",
+                    "reason": "runtime error (see logs for traceback)",
                 })
 
         return responses, active_agents, excluded_agents
@@ -310,8 +310,8 @@ class Brain:
                 position_size = risk_check.get("position_size")
                 stop_loss = risk_check.get("stop_loss")
                 take_profit = risk_check.get("take_profit")
-            except Exception as e:
-                logger.error("Risk Manager failed: %s", str(e))
+            except Exception:
+                logger.exception("Risk Manager failed")
 
         # 5. Build decision
         decision = BrainDecision(
@@ -367,5 +367,5 @@ class Brain:
             self.decision_log_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.decision_log_path, "a") as f:
                 f.write(json.dumps(asdict(decision), default=str) + "\n")
-        except Exception as e:
-            logger.error("Failed to log decision: %s", str(e))
+        except Exception:
+            logger.exception("Failed to log decision")

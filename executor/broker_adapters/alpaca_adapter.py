@@ -56,16 +56,26 @@ except ImportError:
 # ============================================================
 
 class _RateLimiter:
-    """Simple sliding-window rate limiter (thread-safe).
+    """Singleton sliding-window rate limiter (thread-safe).
 
     Enforces max_calls within window_seconds.
+    All AlpacaAdapter instances share the same limiter so that the
+    aggregate request rate stays within Alpaca's 200 req/min cap.
     """
 
-    def __init__(self, max_calls: int = 200, window_seconds: float = 60.0) -> None:
-        self._max_calls = max_calls
-        self._window = window_seconds
-        self._timestamps: List[float] = []
-        self._lock = threading.Lock()
+    _instance: Optional["_RateLimiter"] = None
+    _init_lock = threading.Lock()
+
+    def __new__(cls, max_calls: int = 200, window_seconds: float = 60.0) -> "_RateLimiter":
+        with cls._init_lock:
+            if cls._instance is None:
+                inst = super().__new__(cls)
+                inst._max_calls = max_calls
+                inst._window = window_seconds
+                inst._timestamps: List[float] = []
+                inst._lock = threading.Lock()
+                cls._instance = inst
+        return cls._instance
 
     def acquire(self) -> None:
         """Block until a request slot is available."""
@@ -82,6 +92,12 @@ class _RateLimiter:
                 # Calculate how long to wait for the oldest entry to expire
                 wait = self._window - (now - self._timestamps[0])
             time.sleep(max(wait, 0.05))
+
+    @classmethod
+    def _reset(cls) -> None:
+        """Reset singleton (testing only)."""
+        with cls._init_lock:
+            cls._instance = None
 
 
 # ============================================================
@@ -175,8 +191,8 @@ class AlpacaAdapter(BrokerAdapter):
                 account.equity,
             )
             return True
-        except Exception as exc:
-            logger.error("Alpaca connection failed: %s", exc)
+        except Exception:
+            logger.exception("Alpaca connection failed")
             self._connected = False
             return False
 
@@ -309,8 +325,8 @@ class AlpacaAdapter(BrokerAdapter):
             api.cancel_order(order_id)
             logger.info("Cancelled order %s", order_id)
             return True
-        except Exception as exc:
-            logger.error("Failed to cancel order %s: %s", order_id, exc)
+        except Exception:
+            logger.exception("Failed to cancel order %s", order_id)
             return False
 
     def get_order_status(self, order_id: str) -> OrderStatus:
@@ -370,8 +386,8 @@ class AlpacaAdapter(BrokerAdapter):
                     bar.timestamp if hasattr(bar, "timestamp")
                     else datetime.now(timezone.utc),
                 )
-            except Exception as exc:
-                logger.error("Stream callback error: %s", exc)
+            except Exception:
+                logger.exception("Stream callback error")
 
         channels = [f"T.{s.upper()}" for s in symbols]
         logger.info("Starting Alpaca quote stream for: %s", symbols)
@@ -379,8 +395,8 @@ class AlpacaAdapter(BrokerAdapter):
         def _run_stream() -> None:
             try:
                 conn.run(channels)
-            except Exception as exc:
-                logger.error("Alpaca stream error: %s", exc)
+            except Exception:
+                logger.exception("Alpaca stream error")
 
         self._stream_thread = threading.Thread(
             target=_run_stream, daemon=True, name="alpaca-stream"

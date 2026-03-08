@@ -144,8 +144,8 @@ class MarketDataFetcher:
             logger.info("Fetched %d candles for %s", len(data), symbol)
             return data
 
-        except Exception as e:
-            logger.error("Failed to fetch %s: %s", symbol, str(e))
+        except Exception:
+            logger.exception("Failed to fetch %s", symbol)
             return None
 
     def engineer_features(self, df: pd.DataFrame, symbol: str = "unknown") -> pd.DataFrame:

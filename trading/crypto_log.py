@@ -50,8 +50,8 @@ def _init_fernet() -> None:
         logger.info("Trade log encryption enabled (Fernet)")
     except ImportError:
         logger.warning("cryptography package not installed — trade logs will be plain text")
-    except Exception as e:
-        logger.error("Invalid MH_ENCRYPTION_KEY — trade logs will be plain text: %s", e)
+    except Exception:
+        logger.exception("Invalid MH_ENCRYPTION_KEY — trade logs will be plain text")
 
 
 def is_encryption_enabled() -> bool:

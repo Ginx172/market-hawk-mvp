@@ -212,8 +212,8 @@ DETAILED ANSWER (with practical trading recommendations):"""
             self._initialized = True
             return True
 
-        except Exception as e:
-            logger.error("❌ Failed to initialize Knowledge Advisor: %s", str(e))
+        except Exception:
+            logger.exception("Failed to initialize Knowledge Advisor")
             logger.error("   Make sure Ollama is running: ollama serve")
             logger.error("   And nomic-embed-text is pulled: ollama pull nomic-embed-text")
             return False
@@ -268,8 +268,8 @@ DETAILED ANSWER (with practical trading recommendations):"""
 
             return results
 
-        except Exception as e:
-            logger.error("Retrieval failed: %s", str(e))
+        except Exception:
+            logger.exception("Retrieval failed")
             return []
 
     # ============================================================
@@ -326,7 +326,7 @@ DETAILED ANSWER (with practical trading recommendations):"""
             )
 
         except Exception as e:
-            logger.error("RAG query failed: %s", str(e))
+            logger.exception("RAG query failed")
             return RAGResponse(
                 answer=f"Query failed: {str(e)}",
                 sources=[], query=question

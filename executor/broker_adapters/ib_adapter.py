@@ -134,10 +134,11 @@ class IBAdapter(BrokerAdapter):
                     creds.host, creds.port, creds.client_id, attempt,
                 )
                 return True
-            except Exception as exc:
+            except Exception:
                 logger.warning(
-                    "IB connection attempt %d/%d failed: %s (retry in %.1fs)",
-                    attempt, self._MAX_RETRIES, exc, delay,
+                    "IB connection attempt %d/%d failed (retry in %.1fs)",
+                    attempt, self._MAX_RETRIES, delay,
+                    exc_info=True,
                 )
                 if attempt < self._MAX_RETRIES:
                     time.sleep(delay)
@@ -315,8 +316,8 @@ class IBAdapter(BrokerAdapter):
                     return True
             logger.warning("IB order %s not found in open trades", order_id)
             return False
-        except Exception as exc:
-            logger.error("Failed to cancel IB order %s: %s", order_id, exc)
+        except Exception:
+            logger.exception("Failed to cancel IB order %s", order_id)
             return False
 
     def get_order_status(self, order_id: str) -> OrderStatus:
@@ -382,8 +383,8 @@ class IBAdapter(BrokerAdapter):
                         Decimal(str(price)),
                         datetime.now(timezone.utc),
                     )
-            except Exception as exc:
-                logger.error("IB tick callback error: %s", exc)
+            except Exception:
+                logger.exception("IB tick callback error")
 
         for contract in contracts:
             ticker = ib.reqMktData(contract, "", False, False)
@@ -394,8 +395,8 @@ class IBAdapter(BrokerAdapter):
         def _run_loop() -> None:
             try:
                 ib.run()
-            except Exception as exc:
-                logger.error("IB event loop error: %s", exc)
+            except Exception:
+                logger.exception("IB event loop error")
 
         stream_thread = threading.Thread(
             target=_run_loop, daemon=True, name="ib-stream"

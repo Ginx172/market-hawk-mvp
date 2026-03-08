@@ -373,8 +373,8 @@ class AlertManager:
                     self._send_webhook(alert)
                 elif ch == AlertChannel.CALLBACK:
                     self._send_callbacks(alert)
-            except Exception as e:
-                logger.warning("Alert channel %s failed: %s", ch.value, e)
+            except Exception:
+                logger.exception("Alert channel %s failed", ch.value)
 
     # ---------- LOG ----------
     def _send_log(self, alert: Alert) -> None:
@@ -474,8 +474,8 @@ class AlertManager:
                 stderr=subprocess.DEVNULL,
                 creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
             )
-        except Exception as e:
-            logger.debug("Desktop toast failed: %s", e)
+        except Exception:
+            logger.debug("Desktop toast failed", exc_info=True)
 
     # ---------- SOUND ----------
     def _send_sound(self, alert: Alert) -> None:
@@ -592,13 +592,13 @@ class AlertManager:
             def _do_post():
                 try:
                     urllib.request.urlopen(req, timeout=10)
-                except Exception as e:
-                    logger.warning("Webhook POST failed: %s", e)
+                except Exception:
+                    logger.exception("Webhook POST failed")
 
             threading.Thread(target=_do_post, daemon=True).start()
 
-        except Exception as e:
-            logger.warning("Webhook setup failed: %s", e)
+        except Exception:
+            logger.exception("Webhook setup failed")
 
     # ---------- CALLBACK ----------
     def _send_callbacks(self, alert: Alert) -> None:
@@ -606,8 +606,8 @@ class AlertManager:
         for fn in self._callbacks:
             try:
                 fn(alert)
-            except Exception as e:
-                logger.warning("Alert callback failed: %s", e)
+            except Exception:
+                logger.exception("Alert callback failed")
 
     # ============================================================
     # HISTORY & REPORTING
@@ -728,8 +728,8 @@ class AlertManager:
                         logger.info("Watcher completed %d iterations", iteration)
                         break
 
-                except Exception as e:
-                    logger.error("Watcher error: %s", e)
+                except Exception:
+                    logger.exception("Watcher error")
 
                 # Sleep in small increments for responsive shutdown
                 waited = 0.0
@@ -919,8 +919,8 @@ def run_alert_monitor():
                 df = fetcher.engineer_features(df)
                 _init_done = True
             return df
-        except Exception as e:
-            logger.error("Data fetch error: %s", e)
+        except Exception:
+            logger.exception("Data fetch error")
             return None
 
     try:

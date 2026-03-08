@@ -224,9 +224,9 @@ class SecurityGuard:
                     alerts.append(alert)
                     logger.info("🚨 %s [%s] %s: %s",
                                  symbol, alert.severity, alert.alert_type, alert.description)
-            except Exception as e:
-                logger.warning("Check %s failed for %s: %s",
-                               check.__name__, symbol, str(e))
+            except Exception:
+                logger.exception("Check %s failed for %s",
+                                 check.__name__, symbol)
 
         return alerts
 

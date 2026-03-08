@@ -109,8 +109,8 @@ class NewsFetcher:
                             "published": entry.get("published", ""),
                             "link": entry.get("link", ""),
                         })
-                except Exception as e:
-                    logger.warning("RSS feed %s failed for %s: %s", feed_name, symbol, str(e))
+                except Exception:
+                    logger.exception("RSS feed %s failed for %s", feed_name, symbol)
 
         except ImportError:
             logger.warning("feedparser not installed — using fallback")
@@ -133,8 +133,8 @@ class NewsFetcher:
                         ).isoformat() if item.get("providerPublishTime") else "",
                         "link": item.get("link", ""),
                     })
-            except Exception as e:
-                logger.warning("yfinance news fallback failed for %s: %s", symbol, str(e))
+            except Exception:
+                logger.exception("yfinance news fallback failed for %s", symbol)
 
         # Cache results
         self._cache[cache_key] = (time.time(), articles)
@@ -175,8 +175,8 @@ class NewsAnalyzer:
             )
             logger.info("News Analyzer LLM initialized (qwen3:8b)")
             return True
-        except Exception as e:
-            logger.warning("LLM init failed, using keyword fallback: %s", str(e))
+        except Exception:
+            logger.exception("LLM init failed, using keyword fallback")
             self._use_llm = False
             return False
 
@@ -219,8 +219,8 @@ Respond with ONLY a JSON object (no other text):
                     "sentiment": sentiment,
                     "reasoning": result.get("reasoning", "LLM analysis"),
                 }
-        except Exception as e:
-            logger.warning("LLM sentiment failed: %s", str(e))
+        except Exception:
+            logger.exception("LLM sentiment failed")
 
         return None
 

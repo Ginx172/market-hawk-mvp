@@ -47,6 +47,119 @@ def _to_decimal(value: Any) -> Decimal:
 
 
 # ============================================================
+# COMMISSION MODEL
+# ============================================================
+
+class CommissionModel:
+    """Configurable commission model for backtesting.
+
+    Supports three modes:
+        - "percentage": commission = trade_value * pct  (default)
+        - "per_share": commission = quantity * per_share_cost
+        - "tiered": per_share with volume tiers
+
+    All modes enforce a minimum commission floor.
+    """
+
+    def __init__(self,
+                 mode: str = "percentage",
+                 commission_pct: float = 0.001,
+                 per_share: float = 0.005,
+                 min_commission: float = 1.0,
+                 tiers: Optional[List[Tuple[int, float]]] = None):
+        """
+        Args:
+            mode: "percentage", "per_share", or "tiered".
+            commission_pct: Rate for percentage mode (0.001 = 0.1%).
+            per_share: Cost per share for per_share/tiered modes.
+            min_commission: Minimum commission per trade ($1 default).
+            tiers: For tiered mode, list of (qty_threshold, per_share_rate)
+                   sorted ascending. E.g. [(0, 0.005), (500, 0.004), (1000, 0.003)].
+        """
+        self.mode = mode
+        self.commission_pct = _to_decimal(commission_pct)
+        self.per_share = _to_decimal(per_share)
+        self.min_commission = _to_decimal(min_commission)
+        self.tiers = tiers or [(0, 0.005), (500, 0.004), (1000, 0.003)]
+
+    def calculate(self, trade_value: Decimal, quantity: Decimal) -> Decimal:
+        """Calculate commission for a trade.
+
+        Args:
+            trade_value: Total dollar value of the trade.
+            quantity: Number of shares/units.
+
+        Returns:
+            Commission amount (Decimal), at least min_commission.
+        """
+        if self.mode == "per_share":
+            commission = quantity * self.per_share
+        elif self.mode == "tiered":
+            commission = self._tiered_commission(quantity)
+        else:
+            commission = trade_value * self.commission_pct
+
+        return max(commission, self.min_commission)
+
+    def _tiered_commission(self, quantity: Decimal) -> Decimal:
+        """Calculate tiered per-share commission."""
+        qty_float = float(quantity)
+        rate = _to_decimal(self.tiers[0][1])
+        for threshold, tier_rate in self.tiers:
+            if qty_float >= threshold:
+                rate = _to_decimal(tier_rate)
+        return quantity * rate
+
+
+# ============================================================
+# SLIPPAGE MODEL
+# ============================================================
+
+class SlippageModel:
+    """Variable slippage model based on volume impact.
+
+    slippage = base_slippage * (1 + volume_impact)
+    volume_impact = order_size / avg_daily_volume
+
+    Clamped to [min_slippage, max_slippage].
+    Falls back to base_slippage when volume data is unavailable.
+    """
+
+    def __init__(self,
+                 base_slippage_pct: float = 0.0005,
+                 min_slippage_pct: float = 0.0001,
+                 max_slippage_pct: float = 0.005):
+        """
+        Args:
+            base_slippage_pct: Base slippage fraction (0.0005 = 0.05%).
+            min_slippage_pct: Floor (0.0001 = 0.01%).
+            max_slippage_pct: Cap (0.005 = 0.5%).
+        """
+        self.base = _to_decimal(base_slippage_pct)
+        self.min_slip = _to_decimal(min_slippage_pct)
+        self.max_slip = _to_decimal(max_slippage_pct)
+
+    def calculate(self, order_value: Decimal,
+                  avg_daily_volume_value: Optional[Decimal] = None) -> Decimal:
+        """Calculate slippage fraction for a trade.
+
+        Args:
+            order_value: Dollar value of the order.
+            avg_daily_volume_value: Average daily volume in dollar terms.
+                                   If None, returns base slippage.
+
+        Returns:
+            Slippage fraction (Decimal), clamped to [min, max].
+        """
+        if avg_daily_volume_value is None or avg_daily_volume_value <= ZERO:
+            return max(self.min_slip, min(self.base, self.max_slip))
+
+        volume_impact = order_value / avg_daily_volume_value
+        slippage = self.base * (ONE + volume_impact)
+        return max(self.min_slip, min(slippage, self.max_slip))
+
+
+# ============================================================
 # TRADE RECORD
 # ============================================================
 
@@ -155,16 +268,22 @@ class BacktestEngine:
                  max_position_pct: float = 0.10,   # Max 10% per position
                  allow_short: bool = True,
                  allow_pyramiding: bool = False,
-                 max_drawdown_pct: Optional[float] = None):
+                 max_drawdown_pct: Optional[float] = None,
+                 commission_model: Optional[CommissionModel] = None,
+                 slippage_model: Optional[SlippageModel] = None):
         """
         Args:
             initial_capital: Starting cash
-            commission_pct: Commission as fraction (0.001 = 0.1%)
-            slippage_pct: Slippage as fraction
+            commission_pct: Commission as fraction (0.001 = 0.1%).
+                Used only if commission_model is None (backward compatible).
+            slippage_pct: Slippage as fraction.
+                Used only if slippage_model is None (backward compatible).
             max_position_pct: Max fraction of equity per trade
             allow_short: Enable short selling
             allow_pyramiding: Allow multiple entries in same direction
             max_drawdown_pct: Max drawdown before circuit breaker (default from RiskConfig)
+            commission_model: CommissionModel instance. Overrides commission_pct.
+            slippage_model: SlippageModel instance. Overrides slippage_pct.
         """
         self.initial_capital = _to_decimal(initial_capital)
         self.commission_pct = _to_decimal(commission_pct)
@@ -173,6 +292,13 @@ class BacktestEngine:
         self.allow_short = allow_short
         self.allow_pyramiding = allow_pyramiding
         self.max_drawdown_pct = max_drawdown_pct if max_drawdown_pct is not None else RISK_CONFIG.max_drawdown_pct
+
+        self._commission_model = commission_model or CommissionModel(
+            mode="percentage", commission_pct=commission_pct,
+        )
+        self._slippage_model = slippage_model or SlippageModel(
+            base_slippage_pct=slippage_pct,
+        )
 
         # State
         self._cash: Decimal = self.initial_capital
@@ -350,8 +476,8 @@ class BacktestEngine:
                 strat_copy = copy.deepcopy(strategy)
                 result = self.run(df, strat_copy, symbol, timeframe)
                 results[symbol] = result
-            except Exception as e:
-                logger.error("Failed on %s: %s", symbol, str(e))
+            except Exception:
+                logger.exception("Failed on %s", symbol)
             gc.collect()
 
         return results
@@ -363,18 +489,24 @@ class BacktestEngine:
     def _open_position(self, df: pd.DataFrame, idx: int,
                        price: Decimal, side: str, signal: TradeSignal) -> None:
         """Open a new position."""
-        # Apply slippage
-        if side == "LONG":
-            fill_price = price * (ONE + self.slippage_pct)
-        else:
-            fill_price = price * (ONE - self.slippage_pct)
-
         # Position sizing
         equity = self._calculate_equity(price)
         pos_size = _to_decimal(signal.position_size)
         max_pos = self.max_position_pct
         trade_value = equity * min(pos_size, max_pos)
-        commission = trade_value * self.commission_pct
+
+        # Calculate slippage (variable, volume-aware)
+        avg_vol_value = self._estimate_avg_volume_value(df, idx, price)
+        slippage_pct = self._slippage_model.calculate(trade_value, avg_vol_value)
+
+        if side == "LONG":
+            fill_price = price * (ONE + slippage_pct)
+        else:
+            fill_price = price * (ONE - slippage_pct)
+
+        # Calculate commission (model-based)
+        quantity = trade_value / fill_price if fill_price > ZERO else ZERO
+        commission = self._commission_model.calculate(trade_value, quantity)
         trade_value -= commission
         quantity = trade_value / fill_price if fill_price > ZERO else ZERO
 
@@ -407,11 +539,15 @@ class BacktestEngine:
         pos = self._position
         side = pos["side"]
 
-        # Apply slippage
+        # Apply slippage (variable, volume-aware)
+        exit_value_est = price * pos["quantity"]
+        avg_vol_value = self._estimate_avg_volume_value(df, idx, price)
+        slippage_pct = self._slippage_model.calculate(exit_value_est, avg_vol_value)
+
         if side == "LONG":
-            fill_price = price * (ONE - self.slippage_pct)
+            fill_price = price * (ONE - slippage_pct)
         else:
-            fill_price = price * (ONE + self.slippage_pct)
+            fill_price = price * (ONE + slippage_pct)
 
         # Calculate P&L
         if side == "LONG":
@@ -419,9 +555,9 @@ class BacktestEngine:
         else:
             pnl = (pos["entry_price"] - fill_price) * pos["quantity"]
 
-        # Commission on exit
+        # Commission on exit (model-based)
         exit_value = fill_price * pos["quantity"]
-        commission_exit = exit_value * self.commission_pct
+        commission_exit = self._commission_model.calculate(exit_value, pos["quantity"])
         pnl -= commission_exit
         total_commission = pos["commission_entry"] + commission_exit
 
@@ -480,6 +616,25 @@ class BacktestEngine:
                 return "take_profit"
 
         return None
+
+    @staticmethod
+    def _estimate_avg_volume_value(df: pd.DataFrame, idx: int,
+                                   current_price: Decimal) -> Optional[Decimal]:
+        """Estimate average daily dollar volume from recent bars.
+
+        Uses a 20-bar rolling average of Volume * Close.
+        Returns None if volume data is unavailable.
+        """
+        if "Volume" not in df.columns:
+            return None
+        lookback = min(20, idx)
+        if lookback < 1:
+            return None
+        vol_slice = df["Volume"].iloc[max(0, idx - lookback):idx]
+        if vol_slice.empty or vol_slice.sum() == 0:
+            return None
+        avg_volume = float(vol_slice.mean())
+        return _to_decimal(avg_volume) * current_price
 
     def _calculate_equity(self, current_price: Decimal) -> Decimal:
         """Calculate current total equity."""

@@ -355,8 +355,8 @@ class MLSignalEngine:
                          model_name, entry["accuracy"], entry["notes"])
             return True
 
-        except Exception as e:
-            logger.error("Failed to load model %s: %s", model_name, str(e))
+        except Exception:
+            logger.exception("Failed to load model %s", model_name)
             return False
 
     def list_models(self) -> Dict[str, Dict]:
@@ -475,7 +475,7 @@ class MLSignalEngine:
             }
 
         except Exception as e:
-            logger.error("Prediction failed (%s, %s): %s", model_name, symbol, str(e))
+            logger.exception("Prediction failed (%s, %s)", model_name, symbol)
             return {
                 "recommendation": "HOLD",
                 "confidence": 0.0,

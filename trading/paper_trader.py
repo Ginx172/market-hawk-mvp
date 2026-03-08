@@ -343,8 +343,8 @@ class PaperTrader:
                         take_profit=decision.take_profit or 0.04,
                     )
 
-            except Exception as e:
-                logger.error("Error scanning %s: %s", symbol, str(e))
+            except Exception:
+                logger.exception("Error scanning %s", symbol)
 
         # 3. Update peak equity
         if self.portfolio.equity > self.portfolio.peak_equity:
@@ -381,8 +381,8 @@ class PaperTrader:
                     logger.info("TAKE PROFIT: %s @ $%s (entry: $%s)",
                                  symbol, current_price, pos.entry_price)
 
-            except Exception as e:
-                logger.error("Error updating %s: %s", symbol, str(e))
+            except Exception:
+                logger.exception("Error updating %s", symbol)
 
         # Close positions
         for symbol, price, reason in to_close:
@@ -542,8 +542,8 @@ class PaperTrader:
                 "equity": _d_to_json(self.portfolio.equity),
             }
             write_log_line(self.TRADE_LOG, json.dumps(entry))
-        except Exception as e:
-            logger.error("Failed to log trade: %s", str(e))
+        except Exception:
+            logger.exception("Failed to log trade")
 
     def _save_state(self) -> None:
         """Save portfolio state to JSON."""
@@ -581,8 +581,8 @@ class PaperTrader:
             }
             with open(self.SAVE_FILE, "w") as f:
                 json.dump(state, f, indent=2)
-        except Exception as e:
-            logger.error("Failed to save state: %s", str(e))
+        except Exception:
+            logger.exception("Failed to save state")
 
     _VALID_SIDES = {"LONG", "SHORT"}
 
@@ -637,8 +637,8 @@ class PaperTrader:
                          len(self.portfolio.positions))
         except (ValueError, TypeError, KeyError) as e:
             logger.warning("Invalid state data in %s: %s", self.SAVE_FILE, str(e))
-        except Exception as e:
-            logger.warning("Could not load state: %s", str(e))
+        except Exception:
+            logger.exception("Could not load state")
 
 
 # ============================================================
@@ -664,8 +664,8 @@ async def run_loop(interval_minutes: int) -> None:
             trader._save_state()
             trader._print_status()
             break
-        except Exception as e:
-            logger.error("Scan error: %s — retrying in 60s", str(e))
+        except Exception:
+            logger.exception("Scan error — retrying in 60s")
             await asyncio.sleep(60)
 
 

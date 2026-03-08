@@ -518,6 +518,6 @@ class AgentConsensusStrategy(StrategyBase):
 
             return TradeSignal(Signal.HOLD)
 
-        except Exception as e:
-            logger.debug("Signal generation error at idx %d: %s", idx, str(e))
+        except Exception:
+            logger.debug("Signal generation error at idx %d", idx, exc_info=True)
             return TradeSignal(Signal.HOLD)

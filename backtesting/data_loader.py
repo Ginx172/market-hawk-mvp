@@ -432,8 +432,8 @@ class HistoricalDataLoader:
             else:
                 logger.warning("Unsupported format: %s", fmt)
                 return None
-        except Exception as e:
-            logger.error("Failed to load %s: %s", path, str(e))
+        except Exception:
+            logger.exception("Failed to load %s", path)
             return None
 
     def _load_csv(self, path: str, size_mb: float) -> pd.DataFrame:
@@ -568,8 +568,8 @@ class HistoricalDataLoader:
 
             return data
 
-        except Exception as e:
-            logger.error("yfinance fallback failed for %s: %s", symbol, str(e))
+        except Exception:
+            logger.exception("yfinance fallback failed for %s", symbol)
             return None
 
     # ============================================================
