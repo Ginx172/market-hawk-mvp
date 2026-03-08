@@ -93,6 +93,135 @@ def get_symbol_category(symbol: str) -> str:
 
 
 # ============================================================
+# CORPORATE ACTION ADJUSTMENT
+# ============================================================
+
+# Common stock split ratios to check against (forward: new/old)
+_COMMON_SPLIT_RATIOS = [2.0, 3.0, 4.0, 5.0, 10.0, 20.0,
+                        0.5, 1/3, 0.25, 0.2, 0.1, 0.05]
+
+# Maximum deviation from a known split ratio to consider a match
+_SPLIT_RATIO_TOLERANCE = 0.05
+
+
+def detect_unadjusted_splits(df: pd.DataFrame,
+                              gap_threshold: float = 0.30) -> List[dict]:
+    """Detect price gaps that look like unadjusted stock splits.
+
+    Scans Close-to-Close changes. If a single-bar gap exceeds
+    ``gap_threshold`` (default 30 %) AND the ratio is close to a common
+    split factor, a warning is emitted and the location is returned.
+
+    Args:
+        df: DataFrame with a ``Close`` column (numeric).
+        gap_threshold: Minimum absolute pct change to flag (0.30 = 30 %).
+
+    Returns:
+        List of dicts: ``[{"index": idx, "ratio": float, "split": str}]``
+    """
+    if "Close" not in df.columns or len(df) < 2:
+        return []
+
+    close = df["Close"].astype(float)
+    prev = close.shift(1)
+    ratio = close / prev  # >1 means price jumped up, <1 means dropped
+
+    alerts: List[dict] = []
+    for i in range(1, len(df)):
+        r = ratio.iloc[i]
+        if np.isnan(r) or r == 0:
+            continue
+        pct_change = abs(r - 1.0)
+        if pct_change < gap_threshold:
+            continue
+        # Check if ratio matches a common split factor
+        for split_r in _COMMON_SPLIT_RATIOS:
+            if abs(r - split_r) / split_r < _SPLIT_RATIO_TOLERANCE:
+                idx_label = df.index[i]
+                alert = {
+                    "index": idx_label,
+                    "ratio": round(float(r), 4),
+                    "split": (f"{int(round(split_r))}:1"
+                              if split_r >= 1
+                              else f"1:{int(round(1/split_r))}"),
+                }
+                alerts.append(alert)
+                logger.warning(
+                    "Possible unadjusted stock split detected at index %s "
+                    "(ratio ~%.2f, likely %s split)",
+                    idx_label, r, alert["split"],
+                )
+                break  # One match per bar is enough
+
+    return alerts
+
+
+def adjust_for_splits_dividends(df: pd.DataFrame) -> pd.DataFrame:
+    """Backward-adjust OHLCV prices using Adj Close / Close ratio.
+
+    If the DataFrame contains an ``Adj Close`` column that differs from
+    ``Close`` on at least one row, a per-bar adjustment factor is computed
+    and applied to Open, High, Low, Close.  Volume is inversely adjusted
+    so that dollar-volume stays consistent.
+
+    If ``Adj Close`` is missing or identical to ``Close``, the DataFrame
+    is returned unmodified.
+
+    Args:
+        df: OHLCV DataFrame.  Must have ``Close``; ``Adj Close`` optional.
+
+    Returns:
+        Adjusted copy of the DataFrame (original is not mutated).
+    """
+    if "Adj Close" not in df.columns or "Close" not in df.columns:
+        logger.debug("adjust_for_splits_dividends: no Adj Close column, "
+                      "skipping adjustment")
+        return df
+
+    close = df["Close"].astype(float)
+    adj_close = df["Adj Close"].astype(float)
+
+    # If they're identical (within float tolerance), nothing to do
+    diff = (close - adj_close).abs()
+    if (diff < 1e-8).all():
+        logger.debug("adjust_for_splits_dividends: Adj Close == Close, "
+                      "no adjustment needed")
+        return df
+
+    result = df.copy()
+
+    # factor = Adj Close / Close  (per bar)
+    factor = adj_close / close
+    # Guard against division by zero
+    factor = factor.replace([np.inf, -np.inf], 1.0).fillna(1.0)
+
+    adjusted_count = (factor != 1.0).sum()
+    max_factor = factor.max()
+    min_factor = factor.min()
+
+    # Apply to price columns
+    for col in ["Open", "High", "Low", "Close"]:
+        if col in result.columns:
+            result[col] = (result[col].astype(float) * factor).round(6)
+
+    # Adjust volume inversely (more shares at lower price)
+    if "Volume" in result.columns:
+        safe_factor = factor.replace(0.0, 1.0)
+        result["Volume"] = (result["Volume"].astype(float) / safe_factor).round(0)
+
+    # Update Adj Close to match new Close (they should now be equal)
+    result["Adj Close"] = result["Close"]
+
+    logger.info(
+        "Applied price adjustment: %d bars adjusted, "
+        "factor range [%.6f, %.6f]",
+        adjusted_count, min_factor, max_factor,
+    )
+
+    return result
+
+
+# ============================================================
 # DATA FETCHER
 # ============================================================
 
@@ -131,7 +260,7 @@ class MarketDataFetcher:
                          symbol, ticker, period, interval)
 
             data = yf.download(ticker, period=period, interval=interval,
-                               progress=False, auto_adjust=False, timeout=30)
+                               progress=False, auto_adjust=True, timeout=30)
 
             if data.empty:
                 logger.warning("No data returned for %s", symbol)

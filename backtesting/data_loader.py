@@ -285,7 +285,8 @@ class HistoricalDataLoader:
 
     def load(self, symbol: str, timeframe: str = "1h",
              start: Optional[str] = None, end: Optional[str] = None,
-             use_yfinance_fallback: bool = True) -> Optional[pd.DataFrame]:
+             use_yfinance_fallback: bool = True,
+             adjust_splits: bool = True) -> Optional[pd.DataFrame]:
         """
         Load historical OHLCV data for a symbol.
 
@@ -299,6 +300,8 @@ class HistoricalDataLoader:
             start: Start date ISO string (e.g., "2024-01-01")
             end: End date ISO string (e.g., "2024-12-31")
             use_yfinance_fallback: Download from yfinance if local data missing
+            adjust_splits: Apply dividend/split adjustment using Adj Close
+                           and warn about possible unadjusted splits (default True)
 
         Returns:
             DataFrame with DatetimeIndex and columns: Open, High, Low, Close, Volume
@@ -332,6 +335,14 @@ class HistoricalDataLoader:
 
         # Standardize columns
         df = self._standardize_columns(df)
+
+        # Corporate action adjustment (splits/dividends)
+        if adjust_splits:
+            from data.market_data_fetcher import (
+                adjust_for_splits_dividends, detect_unadjusted_splits,
+            )
+            df = adjust_for_splits_dividends(df)
+            detect_unadjusted_splits(df)
 
         # Validate OHLCV data quality
         df = self.validate_ohlcv(df)
@@ -546,11 +557,11 @@ class HistoricalDataLoader:
             if start and end:
                 data = yf.download(ticker, start=start, end=end,
                                    interval=interval, progress=False,
-                                   auto_adjust=False)
+                                   auto_adjust=True)
             else:
                 data = yf.download(ticker, period=default_period,
                                    interval=interval, progress=False,
-                                   auto_adjust=False)
+                                   auto_adjust=True)
 
             if data.empty:
                 return None

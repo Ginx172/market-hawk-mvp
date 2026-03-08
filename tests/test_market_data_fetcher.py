@@ -19,6 +19,8 @@ from data.market_data_fetcher import (
     get_yfinance_ticker,
     get_symbol_category,
     TICKER_MAP,
+    adjust_for_splits_dividends,
+    detect_unadjusted_splits,
 )
 
 
@@ -207,3 +209,185 @@ class TestVolumeRatio:
         # After 20-bar warmup, ratio should be ~1.0
         late_ratios = result["volume_ratio"].iloc[25:].values
         np.testing.assert_allclose(late_ratios, 1.0, atol=0.01)
+
+
+# ============================================================
+# ADJUST FOR SPLITS & DIVIDENDS
+# ============================================================
+
+class TestAdjustForSplitsDividends:
+    """Test backward price adjustment via Adj Close / Close factor."""
+
+    def test_no_adj_close_returns_unchanged(self):
+        """Without Adj Close column, return df as-is."""
+        dates = pd.date_range("2025-01-01", periods=5, freq="D")
+        df = pd.DataFrame({
+            "Open": [100, 101, 102, 103, 104],
+            "High": [105, 106, 107, 108, 109],
+            "Low":  [95, 96, 97, 98, 99],
+            "Close": [102, 103, 104, 105, 106],
+            "Volume": [1000, 1100, 1200, 1300, 1400],
+        }, index=dates)
+        result = adjust_for_splits_dividends(df)
+        pd.testing.assert_frame_equal(result, df)
+
+    def test_adj_close_equals_close_no_change(self):
+        """When Adj Close == Close, return unchanged."""
+        dates = pd.date_range("2025-01-01", periods=3, freq="D")
+        df = pd.DataFrame({
+            "Open": [100, 101, 102],
+            "High": [105, 106, 107],
+            "Low":  [95, 96, 97],
+            "Close": [102, 103, 104],
+            "Adj Close": [102, 103, 104],
+            "Volume": [1000, 1100, 1200],
+        }, index=dates)
+        result = adjust_for_splits_dividends(df)
+        pd.testing.assert_frame_equal(result, df)
+
+    def test_2_to_1_split_adjustment(self):
+        """Simulate a 2:1 split where Adj Close = Close * 0.5 for pre-split bars."""
+        dates = pd.date_range("2025-01-01", periods=4, freq="D")
+        df = pd.DataFrame({
+            "Open":      [200, 202, 101, 103],
+            "High":      [210, 212, 106, 108],
+            "Low":       [190, 192, 96,  98],
+            "Close":     [204, 206, 104, 106],
+            "Adj Close": [102, 103, 104, 106],  # Pre-split bars halved
+            "Volume":    [500, 600, 1200, 1300],
+        }, index=dates)
+        result = adjust_for_splits_dividends(df)
+
+        # Pre-split OHLC should be halved
+        assert result["Close"].iloc[0] == pytest.approx(102.0, rel=1e-4)
+        assert result["Close"].iloc[1] == pytest.approx(103.0, rel=1e-4)
+        # Post-split bars unchanged
+        assert result["Close"].iloc[2] == pytest.approx(104.0, rel=1e-4)
+        assert result["Close"].iloc[3] == pytest.approx(106.0, rel=1e-4)
+
+    def test_volume_inversely_adjusted(self):
+        """Volume should increase for pre-split bars (inverse of price factor)."""
+        dates = pd.date_range("2025-01-01", periods=3, freq="D")
+        df = pd.DataFrame({
+            "Open":      [200, 100, 101],
+            "High":      [210, 105, 106],
+            "Low":       [190, 95,  96],
+            "Close":     [200, 100, 101],
+            "Adj Close": [100, 100, 101],  # First bar factor = 0.5
+            "Volume":    [1000, 2000, 2100],
+        }, index=dates)
+        result = adjust_for_splits_dividends(df)
+        # Volume for bar 0: 1000 / 0.5 = 2000
+        assert result["Volume"].iloc[0] == pytest.approx(2000.0, rel=1e-2)
+        # Bar 1+2: factor = 1.0, volume unchanged
+        assert result["Volume"].iloc[1] == pytest.approx(2000.0, rel=1e-2)
+
+    def test_original_df_not_mutated(self):
+        """adjust_for_splits_dividends should return a copy."""
+        dates = pd.date_range("2025-01-01", periods=3, freq="D")
+        df = pd.DataFrame({
+            "Open": [200, 100, 101],
+            "High": [210, 105, 106],
+            "Low":  [190, 95, 96],
+            "Close": [200, 100, 101],
+            "Adj Close": [100, 100, 101],
+            "Volume": [1000, 2000, 2100],
+        }, index=dates)
+        original_close = df["Close"].iloc[0]
+        _ = adjust_for_splits_dividends(df)
+        assert df["Close"].iloc[0] == original_close  # Original untouched
+
+    def test_adj_close_set_equal_to_close_after(self):
+        """After adjustment, Adj Close should equal Close."""
+        dates = pd.date_range("2025-01-01", periods=3, freq="D")
+        df = pd.DataFrame({
+            "Open": [200, 100, 101],
+            "High": [210, 105, 106],
+            "Low":  [190, 95, 96],
+            "Close": [200, 100, 101],
+            "Adj Close": [100, 100, 101],
+            "Volume": [1000, 2000, 2100],
+        }, index=dates)
+        result = adjust_for_splits_dividends(df)
+        np.testing.assert_array_almost_equal(
+            result["Adj Close"].values, result["Close"].values, decimal=4
+        )
+
+
+# ============================================================
+# DETECT UNADJUSTED SPLITS
+# ============================================================
+
+class TestDetectUnadjustedSplits:
+    """Test heuristic detection of unadjusted stock splits."""
+
+    def test_no_split_in_smooth_data(self):
+        """Smoothly increasing prices should trigger no alerts."""
+        dates = pd.date_range("2025-01-01", periods=10, freq="D")
+        df = pd.DataFrame({
+            "Close": [100 + i for i in range(10)],
+        }, index=dates)
+        alerts = detect_unadjusted_splits(df)
+        assert alerts == []
+
+    def test_detects_2_to_1_split(self):
+        """A 50% drop matching 2:1 split should be detected."""
+        dates = pd.date_range("2025-01-01", periods=5, freq="D")
+        df = pd.DataFrame({
+            "Close": [200, 202, 100, 101, 102],  # ~2:1 split between bar 1 and 2
+        }, index=dates)
+        alerts = detect_unadjusted_splits(df, gap_threshold=0.30)
+        assert len(alerts) == 1
+        assert alerts[0]["ratio"] == pytest.approx(0.495, abs=0.02)
+        assert "1:2" in alerts[0]["split"]
+
+    def test_detects_3_to_1_split(self):
+        """A ~67% drop matching 3:1 split should be detected."""
+        dates = pd.date_range("2025-01-01", periods=4, freq="D")
+        df = pd.DataFrame({
+            "Close": [300, 100, 101, 102],  # ~3:1 split
+        }, index=dates)
+        alerts = detect_unadjusted_splits(df, gap_threshold=0.30)
+        assert len(alerts) >= 1
+        # ratio should be ~0.333
+        assert alerts[0]["ratio"] == pytest.approx(1/3, abs=0.02)
+
+    def test_small_gap_not_flagged(self):
+        """A 10% drop should not be flagged with default 30% threshold."""
+        dates = pd.date_range("2025-01-01", periods=4, freq="D")
+        df = pd.DataFrame({
+            "Close": [100, 90, 91, 92],  # 10% drop
+        }, index=dates)
+        alerts = detect_unadjusted_splits(df, gap_threshold=0.30)
+        assert alerts == []
+
+    def test_empty_df_returns_empty(self):
+        """Edge case: empty DataFrame."""
+        df = pd.DataFrame({"Close": []})
+        alerts = detect_unadjusted_splits(df)
+        assert alerts == []
+
+    def test_single_row_returns_empty(self):
+        """Edge case: single-row DataFrame (no diffs possible)."""
+        df = pd.DataFrame({"Close": [100]}, index=[pd.Timestamp("2025-01-01")])
+        alerts = detect_unadjusted_splits(df)
+        assert alerts == []
+
+    def test_no_close_column_returns_empty(self):
+        """Edge case: DataFrame without Close column."""
+        df = pd.DataFrame({"Open": [100, 101, 102]})
+        alerts = detect_unadjusted_splits(df)
+        assert alerts == []
+
+    def test_alert_contains_expected_keys(self):
+        """Each alert dict should have index, ratio, split keys."""
+        dates = pd.date_range("2025-01-01", periods=4, freq="D")
+        df = pd.DataFrame({
+            "Close": [200, 100, 101, 102],
+        }, index=dates)
+        alerts = detect_unadjusted_splits(df, gap_threshold=0.30)
+        assert len(alerts) >= 1
+        for alert in alerts:
+            assert "index" in alert
+            assert "ratio" in alert
+            assert "split" in alert
