@@ -37,6 +37,9 @@ logs/backtest_reports/
 *.h5
 *.hdf5
 
+# Large generated catalogs
+docs/G_DRIVE_RESOURCE_CATALOG.json
+
 # Archives
 *.tar.gz
 *.zip

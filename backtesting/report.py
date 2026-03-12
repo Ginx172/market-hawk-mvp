@@ -11,6 +11,7 @@ Creation Date: 2026-03-01
 
 import json
 import logging
+from html import escape as html_escape
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -129,12 +130,17 @@ class BacktestReport:
         charts_html = ""
 
         for i, r in enumerate(self.results):
+            safe_strategy = html_escape(str(r.strategy_name))
+            safe_symbol = html_escape(str(r.symbol))
+            safe_start = html_escape(str(r.start_date)[:10])
+            safe_end = html_escape(str(r.end_date)[:10])
+
             ret_class = "positive" if r.total_return_pct >= 0 else "negative"
             rows_html += f"""
             <tr>
-                <td>{r.strategy_name}</td>
-                <td>{r.symbol}</td>
-                <td>{r.start_date[:10]} → {r.end_date[:10]}</td>
+                <td>{safe_strategy}</td>
+                <td>{safe_symbol}</td>
+                <td>{safe_start} → {safe_end}</td>
                 <td>{r.total_bars:,}</td>
                 <td class="{ret_class}">{r.total_return_pct*100:+.2f}%</td>
                 <td>{r.total_trades}</td>
@@ -157,7 +163,7 @@ class BacktestReport:
 
             charts_html += f"""
             <div class="chart-container">
-                <h3>{r.strategy_name} — {r.symbol}</h3>
+                <h3>{safe_strategy} — {safe_symbol}</h3>
                 <div id="equity_{i}" style="height:300px;"></div>
                 <div id="drawdown_{i}" style="height:200px;"></div>
                 <script>
@@ -196,7 +202,7 @@ class BacktestReport:
                 values = [v * 100 for v in r.monthly_returns.values()]
                 charts_html += f"""
                 <div class="chart-container">
-                    <h3>Monthly Returns — {r.strategy_name}</h3>
+                    <h3>Monthly Returns — {safe_strategy}</h3>
                     <div id="monthly_{i}" style="height:200px;"></div>
                     <script>
                         Plotly.newPlot('monthly_{i}', [{{

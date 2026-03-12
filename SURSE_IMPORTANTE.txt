@@ -1,0 +1,47 @@
+G:\..............JSON
+
+G:\.................CSV
+
+G:\.............METADATA
+
+G:\.........PARQUET
+
+G:\.....DATABASE\dataset
+
+G:\trading_db
+
+Mai ales acest folder il vreau scanat in amanunt si folosit la maxim ceea ce contine in ele: G:\......................AI_Models; G:\AI_Models
+
+G:\..........Market_Hawk_AI_Agent_Live_Trading
+
+G:\.....DATABASE\dataset
+
+G:\...Altele\Technical_Analysis_Charts
+
+G:\_kit_multimodal
+
+G:\_kit_multimodal_minimal
+
+G:\ai_data_consolidator
+
+G:\K\AI_Trading_Processed - file ....(JSON)
+
+G:\Kit Multimodal
+
+G:\KIT_TRAINING_BOOKS
+
+G:\KIT_TRAINING_REPORTS
+
+G:\L40_CHECKPOINTS
+
+G:\L40_GPU_SUPERKIT
+
+G:\MASTER_AI_TRADING_PACKAGE
+
+G:\model procesare invatare carti trading+ imagini cu explicatii
+
+G:\Modele AI curate
+
+G:\ULTRA_KIT_ANTENAMENT_AI
+
+G:\transfer_runpod

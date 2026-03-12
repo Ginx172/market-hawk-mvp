@@ -1,0 +1,42 @@
+version: '3.9'
+
+services:
+  market-hawk:
+    build: .
+    container_name: market-hawk-trader
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MH_LOG_LEVEL=INFO
+      - OLLAMA_HOST=http://ollama:11434
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    ports:
+      - "8080:8080"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - market-hawk-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: market-hawk-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - market-hawk-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  ollama_data:
+
+networks:
+  market-hawk-net:
+    driver: bridge
