@@ -68,3 +68,15 @@ cautari.txt
 scan1_2_3.txt
 structura_proiect.txt
 activare venv.txt
+
+# Large files - use Git LFS
+*.pt
+*.pkl
+*.cbm
+*.json
+logs/
+models/vision/
+catboost_info/
+data/
+.....Prioritati/
+inspect_aapl.py
