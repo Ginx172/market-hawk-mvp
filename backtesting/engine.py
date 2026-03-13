@@ -26,7 +26,7 @@ import numpy as np
 import pandas as pd
 
 # pandas 2.2+ renamed "M" → "ME" (Month End); support both versions
-_MONTH_END = "ME" if pd.__version__ >= "2.2" else "M"
+_MONTH_END = "ME" if tuple(int(x) for x in pd.__version__.split(".")[:2]) >= (2, 2) else "M"
 
 from backtesting.strategies import StrategyBase, TradeSignal, Signal
 from backtesting.data_loader import HistoricalDataLoader
