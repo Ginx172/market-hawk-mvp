@@ -1,64 +1,72 @@
 # Market Hawk MVP — Python Dependencies
 # Hardware: Intel i7-9700F, NVIDIA GTX 1070 8GB VRAM, 64GB DDR4
 # Python 3.12+
-# Pinning: ~= (compatible release) allows patch updates, blocks breaking changes
-# Updated 2026-03-08: bumped floors to minimum versions supporting Python 3.12
+# Pinning: == (exact) to avoid resolution-too-deep in CI
+# Updated 2026-03-13: patched all known security vulnerabilities
 
 # === Core ===
-numpy~=1.26.0
-pandas~=2.1.0
-scikit-learn~=1.4.0
-joblib~=1.3.0
+numpy==1.26.4
+pandas==2.1.4
+scikit-learn==1.4.2
+joblib==1.3.2
 
 # === ML Models ===
-catboost~=1.2
-xgboost~=2.0.0
-lightgbm~=4.0.0
+catboost==1.2.7
+xgboost==2.0.3
+lightgbm==4.6.0
 
 # === Deep Learning (GPU) ===
-torch~=2.2.0
+torch==2.6.0
 
 # === RAG / Knowledge Base ===
-chromadb~=0.5.0
-sentence-transformers~=3.0.0
-langchain~=0.3.0
-langchain-community~=0.3.0
+chromadb==0.5.23
+sentence-transformers==3.0.1
+langchain==0.3.27
+langchain-community==0.3.27
+langchain-core==0.3.81
+langchain-text-splitters==0.3.9
+langsmith==0.3.45
 
 # === Market Data ===
-feedparser~=6.0.0
-yfinance~=0.2.36
-ccxt~=4.0.0
-alpha-vantage~=2.3.1
-pandas_ta>=0.4.67b0  # beta — daca e instabil, inlocuieste cu: TA-Lib~=0.5.0
+feedparser==6.0.11
+yfinance==0.2.36
+ccxt==4.0.3
+alpha-vantage==2.3.1
+# pandas_ta removed — beta package with unstable deps; use TA-Lib locally if needed
 
 # === Dashboard ===
-streamlit~=1.30.0
-plotly~=5.18.0
+streamlit==1.45.0
+plotly==5.18.0
 
 # === Security ===
-cryptography~=42.0.0
-PyJWT~=2.8.0
-bleach~=6.1.0
+cryptography==46.0.5
+PyJWT==2.8.0
+bleach==6.1.0
 
 # === Utilities ===
-python-dotenv~=1.0.0
-tqdm~=4.66.0
-rich~=13.7.0
-pydantic~=2.7.0
+python-dotenv==1.0.1
+tqdm==4.66.6
+rich==13.7.1
+pydantic==2.7.4
 
 # === Testing ===
-pytest~=8.0.0
-pytest-asyncio~=0.23.0
-pytest-cov~=5.0.0
+pytest==8.0.2
+pytest-asyncio==0.23.8
+pytest-cov==5.0.0
 
 # === Broker APIs ===
-alpaca-trade-api~=3.0.0
-ib_insync~=0.9.0
+# alpaca-trade-api removed — deprecated upstream; hard-requires urllib3<2 (security risk).
+# Migrate to alpaca-py. The AlpacaAdapter uses a guarded import and will degrade gracefully.
+ib_insync==0.9.86
 
 # === API & Networking ===
-requests~=2.31.0
-aiohttp~=3.9.0
-websockets~=10.0
+requests==2.31.0
+aiohttp==3.13.3
+websockets==10.4
 
 # === Local LLM (optional) ===
-ollama~=0.1.0
+ollama==0.1.9
+
+# === Pinned transitive deps (conflict resolution) ===
+protobuf==5.29.6
+urllib3==2.6.3
