@@ -225,7 +225,22 @@ MODEL_REGISTRY = {
         "type": "pickle",
         "scaler": None,
         "accuracy": 0.56,
-        "notes": "Crypto — needs improvement",
+        "notes": "Crypto — superseded by catboost_crypto_v2",
+    },
+    # === Crypto specialist v2 (80-feature, threshold target, 4h+1d) ===
+    "catboost_crypto_v2": {
+        "path": str(
+            __import__("pathlib").Path(__file__).resolve().parent.parent.parent
+            / "models" / "retrained" / "CatBoost_crypto_v2_placeholder.cbm"
+        ),
+        "type": "catboost_native",
+        "scaler": None,
+        "accuracy": "pending — run scripts/retrain_crypto_specialist.py",
+        "notes": (
+            "Crypto specialist: 8 symbols (BTC/ETH/SOL/BNB/ADA/XRP/AVAX/DOT), "
+            "4h+1d, 80 features (60 base + 20 crypto-specific), "
+            "threshold target (|move|>0.3%), depth=8, lr=0.03, iter=2000"
+        ),
     },
 
     # === 80+ Suite (use with caution — may be overfitted) ===
@@ -271,6 +286,39 @@ FEATURES_60 = [
     "rsi", "macd", "signal",
     "ma_5", "ma_10", "ma_20", "volume_ma",
 ]
+
+# 20 crypto-specific features added on top of FEATURES_60
+# Defined here so callers can import without depending on data/
+CRYPTO_EXTRA_FEATURES: List[str] = [
+    # Volatility (crypto is 3-5x more volatile than stocks)
+    "crypto_volatility_ratio",
+    "crypto_range_pct",
+    "crypto_atr_pct",
+    "crypto_volatility_zscore",
+    # Volume (24/7 market, volume patterns differ)
+    "crypto_volume_ratio_8h",
+    "crypto_volume_ratio_24h",
+    "crypto_volume_trend",
+    "crypto_obv_momentum",
+    # Momentum (trend persistence differs in crypto)
+    "crypto_momentum_3d",
+    "crypto_momentum_7d",
+    "crypto_rsi_divergence",
+    "crypto_macd_histogram_momentum",
+    # Price structure
+    "crypto_distance_from_high_20",
+    "crypto_distance_from_low_20",
+    "crypto_bb_position",
+    "crypto_mean_reversion_signal",
+    # Session / cyclical (Asia, Europe, US overlaps)
+    "crypto_hour_sin",
+    "crypto_hour_cos",
+    "crypto_is_weekend",
+    "crypto_day_of_week_sin",
+]
+
+# Full 80-feature set used by the crypto specialist model
+CRYPTO_FEATURES: List[str] = FEATURES_60 + CRYPTO_EXTRA_FEATURES
 
 
 class MLSignalEngine:
