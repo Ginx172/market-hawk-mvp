@@ -357,7 +357,7 @@ class CryptoDataPipeline:
                              len(train), self.gap_bars, len(test))
                 return train, test
 
-        gap_end = cutoff + pd.Timedelta(days=self.gap_bars)
+        gap_end = cutoff + pd.Timedelta(hours=self.gap_bars * self._hours_per_bar())
         train = df[df.index < cutoff]
         test = df[df.index >= gap_end]
 
@@ -387,6 +387,14 @@ class CryptoDataPipeline:
     # ----------------------------------------------------------
     # PRIVATE HELPERS
     # ----------------------------------------------------------
+
+    def _hours_per_bar(self) -> int:
+        """Return number of hours per bar for the current interval.
+
+        Used to convert gap_bars (number of bars) to a Timedelta.
+        """
+        mapping = {"4h": 4, "1h": 1, "1d": 24}
+        return mapping.get(self.interval, 24)
 
     def _create_threshold_target(self, df: pd.DataFrame) -> pd.DataFrame:
         """Create threshold-based directional target and remove neutral rows.
@@ -608,7 +616,7 @@ class CryptoModelTrainer:
                 logger.info(
                     "GPU available: %s (%d MB VRAM)",
                     torch.cuda.get_device_name(0),
-                    torch.cuda.get_device_properties(0).total_mem // 1024 // 1024,
+                    torch.cuda.get_device_properties(0).total_memory // 1024 // 1024,
                 )
             return available
         except ImportError:
