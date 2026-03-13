@@ -70,3 +70,6 @@ ollama==0.1.9
 # === Pinned transitive deps (conflict resolution) ===
 protobuf==5.29.6
 urllib3==2.6.3
+
+# === Distributed Processing ===
+pyspark>=3.5.0

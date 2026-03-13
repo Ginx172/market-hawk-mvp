@@ -77,7 +77,8 @@ activare venv.txt
 logs/
 models/vision/
 catboost_info/
-data/
+data/*
+!data/*.py
 .....Prioritati/
 inspect_aapl.py
 extracted_content/transcripts/transcripts_full.jsonl
