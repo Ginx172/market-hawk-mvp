@@ -25,6 +25,9 @@ from dataclasses import dataclass, field, asdict
 import numpy as np
 import pandas as pd
 
+# pandas 2.2+ renamed "M" → "ME" (Month End); support both versions
+_MONTH_END = "ME" if pd.__version__ >= "2.2" else "M"
+
 from backtesting.strategies import StrategyBase, TradeSignal, Signal
 from backtesting.data_loader import HistoricalDataLoader
 from config.settings import RISK_CONFIG
@@ -740,7 +743,7 @@ class BacktestEngine:
         monthly = {}
         if isinstance(df.index, pd.DatetimeIndex) and len(equity) > 0:
             eq_series = pd.Series(equity, index=df.index[:len(equity)])
-            monthly_eq = eq_series.resample("ME").last()
+            monthly_eq = eq_series.resample(_MONTH_END).last()
             monthly_ret = monthly_eq.pct_change().dropna()
             for dt, ret in monthly_ret.items():
                 monthly[dt.strftime("%Y-%m")] = round(float(ret), 6)
