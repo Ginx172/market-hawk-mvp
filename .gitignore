@@ -80,3 +80,7 @@ catboost_info/
 data/
 .....Prioritati/
 inspect_aapl.py
+extracted_content/transcripts/transcripts_full.jsonl
+extracted_content/video_frames/
+extraction.log
+H_assp.txt

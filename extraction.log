@@ -1,0 +1,42 @@
+nohup: ignoring input
+2026-03-13 17:58:45,271 | INFO | 🆕 Fresh start — no checkpoint found
+2026-03-13 17:59:22,848 | INFO | Found 3623 MP4s | Done: 0 | Remaining: 3623
+
+2026-03-13 17:59:22,849 | INFO | [1/3623] 1. Disclaimer.mp4
+2026-03-13 17:59:39,291 | INFO | ✅ 2 frames (102s)
+2026-03-13 17:59:39,292 | INFO | [3/3623] 10. What Is Scalping.mp4
+2026-03-13 18:00:09,490 | INFO | ✅ 1 frames (224s)
+2026-03-13 18:00:09,491 | INFO | [5/3623] 11. Understanding Forex Scalping.mp4
+2026-03-13 18:00:56,166 | INFO | ✅ 1 frames (284s)
+2026-03-13 18:00:56,168 | INFO | [7/3623] 12. Forex Scalping Risks.mp4
+2026-03-13 18:01:43,401 | INFO | ✅ 1 frames (262s)
+2026-03-13 18:01:43,404 | INFO | [9/3623] 13. Forex Scalpers Require.mp4
+2026-03-13 18:02:23,607 | INFO | ✅ 1 frames (238s)
+2026-03-13 18:02:23,622 | INFO | ✅ Checkpoint: 5 videos, 6 frames
+2026-03-13 18:02:23,623 | INFO | [11/3623] 14. Forex Scalping F.A.Q.mp4
+2026-03-13 18:02:59,860 | INFO | 2026-03-13 18:06:10,677 | INFO | 
+[3/50] Processing: 03. Real GDP How to Use our Understanding of Real GDP Trend to Allocate Capital across Regions.mp4
+-03-13 18:04:03,767 | INFO | [15/3623] 16. Scalping Personality.mp4
+2026-03-13 18:04:59,457 | INFO | ✅ 1 frames (312s)
+2026-03-13 18:04:59,459 | INFO | [17/3623] 17. Market-Making VS Scalping.mp4
+2026-03-13 18:06:15,821 | INFO | ✅ 2 frames (417s)
+2026-03-13 18:06:15,822 | INFO | [19/3623] 18. How to set up for Scalping.mp4
+2026-03-13 18:06:28,032 | INFO | ✅ 1 frames (97s)
+2026-03-13 18:06:28,047 | INFO | ✅ Checkpoint: 10 videos, 12 frames
+2026-03-13 18:06:28,047 | INFO | [21/3623] 19. Picking the Right Broker.mp4
+2026-03-13 18:06:58,823 | INFO | ✅ 1 frames (219s)
+2026-03-13 18:06:58,823 | INFO | [23/3623] 2. Introduction.mp4
+2026-03-13 18:07:13,169 | INFO | ✅ 1 frames (94s)
+2026-03-13 18:07:13,170 | INFO | [25/3623] 20. Choosing a Forex Broker.mp4
+2026-03-13 18:09:18,164 | INFO | ✅ 1 frames (906s)
+2026-03-13 18:09:18,164 | INFO | [27/3623] 21. ECN and non ECN Brokers.mp4
+2026-03-13 18:09:44,210 | INFO | ✅ 1 frames (178s)
+2026-03-13 18:09:44,210 | INFO | [29/3623] 22. Liquidity and forex scalping.mp4
+FO | ✅ 1 frames (219s)
+2026-03-13 18:06:58,823 | INFO | [23/3623] 2. Introduction.mp4
+2026-03-13 18:07:13,169 | INFO | ✅ 1 frames (94s)
+2026-03-13 18:07:13,170 | INFO | [25/3623] 20. Choosing a Forex Broker.mp4
+2026-03-13 18:09:18,164 | INFO | ✅ 1 frames (906s)
+2026-03-13 18:09:18,164 | INFO | [27/3623] 21. ECN and non ECN Brokers.mp4
+2026-03-13 18:09:44,210 | INFO | ✅ 1 frames (178s)
+2026-03-13 18:09:44,210 | INFO | [29/3623] 22. Liquidity and forex scalping.mp4

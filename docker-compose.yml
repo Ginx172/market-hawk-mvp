@@ -1,5 +1,4 @@
 version: '3.9'
-
 services:
   market-hawk:
     build: .
@@ -8,34 +7,49 @@ services:
       - PYTHONUNBUFFERED=1
       - MH_LOG_LEVEL=INFO
       - OLLAMA_HOST=http://ollama:11434
+      - DB_HOST=postgres
+      - DB_PASSWORD=${DB_PASSWORD:-changeme123}
     volumes:
       - .:/app
       - ./logs:/app/logs
     ports:
       - "8080:8080"
     depends_on:
-      ollama:
-        condition: service_healthy
-    networks:
-      - market-hawk-net
+      ollama: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    networks: [market-hawk-net]
 
   ollama:
     image: ollama/ollama:latest
     container_name: market-hawk-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - market-hawk-net
+    ports: ["11434:11434"]
+    volumes: [ollama_data:/root/.ollama]
+    networks: [market-hawk-net]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 30s
       timeout: 10s
       retries: 3
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: market-hawk-postgres
+    environment:
+      - POSTGRES_DB=market_hawk
+      - POSTGRES_USER=trader
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme123}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    ports: ["5432:5432"]
+    networks: [market-hawk-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trader -d market_hawk"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   ollama_data:
+  postgres_data:
 
 networks:
   market-hawk-net:
