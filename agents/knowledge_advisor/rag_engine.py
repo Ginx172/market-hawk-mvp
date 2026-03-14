@@ -9,7 +9,7 @@ Last Modified: 2026-03-01
 
 Connects to EXISTING ChromaDB v2 at:
     K:\\_DEV_MVP_2026\\Agent_Trading_AI\\AgentTradingAI\\baza_date_vectoriala_v2\\
-    Collection: "algo_trading" — 130K+ chunks from 270+ trading books
+    Collection: "algo_trading" — 140K+ chunks from 1,000+ trading books
     Embeddings: nomic-embed-text (via Ollama)
     Retrieval: MMR with k=15, fetch_k=60, lambda=0.7
 
@@ -66,7 +66,7 @@ class KnowledgeAdvisor:
     """
     Knowledge Advisor Agent — RAG-powered trading literature expert.
 
-    Connects to existing ChromaDB v2 (130K+ chunks from 270+ books).
+    Connects to existing ChromaDB v2 (140K+ chunks from 1,000+ books).
     Uses nomic-embed-text embeddings via Ollama and MMR retrieval.
     Designed to be called by the Brain orchestrator.
 
@@ -179,7 +179,7 @@ class KnowledgeAdvisor:
             prompt = ChatPromptTemplate.from_template(
                 """You are a senior trading strategist with deep expertise in algorithmic trading,
 smart money concepts, technical analysis, and risk management. You have access to
-a comprehensive library of 270+ professional trading books.
+a comprehensive library of 1,000+ professional trading books.
 
 Based on the following context from trading literature, provide a detailed,
 actionable answer. Include specific strategies, entry/exit criteria, and
@@ -338,7 +338,7 @@ DETAILED ANSWER (with practical trading recommendations):"""
             prompt = ChatPromptTemplate.from_template(
                 """You are a senior trading strategist with deep expertise in algorithmic trading,
 smart money concepts, technical analysis, and risk management. You have access to
-a comprehensive library of 270+ professional trading books.
+a comprehensive library of 1,000+ professional trading books.
 
 Based on the following context from trading literature, provide a detailed,
 actionable answer. Include specific strategies, entry/exit criteria, and
@@ -427,7 +427,7 @@ DETAILED ANSWER (with practical trading recommendations):"""
             return {
                 "recommendation": "HOLD",
                 "confidence": 0.0,
-                "reasoning": "No relevant knowledge found in 130K+ chunks",
+                "reasoning": "No relevant knowledge found in 140K+ chunks",
             }
 
         # Extract directional signal from retrieved knowledge

@@ -2,7 +2,7 @@
 SCRIPT NAME: build_rag_from_books.py
 ====================================
 Execution Location: market-hawk-mvp/scripts/
-Purpose: Expand RAG Knowledge Base from 671+ trading books into ChromaDB.
+Purpose: Expand RAG Knowledge Base from 1,078+ trading books into ChromaDB.
 Hardware Optimization: Intel i7-9700F, 64GB DDR4
 Creation Date: 2026-03-08
 
@@ -15,7 +15,7 @@ Creation Date: 2026-03-08
 
 Connects to EXISTING ChromaDB v2 at:
     K:\\_DEV_MVP_2026\\Agent_Trading_AI\\AgentTradingAI\\baza_date_vectoriala_v2\\
-    Collection: "algo_trading" — 130K+ chunks from 270+ books
+    Collection: "algo_trading" — 140K+ chunks from 1,078+ books
     Embeddings: nomic-embed-text (via Ollama)
 
 DEPENDENCIES:
@@ -100,6 +100,8 @@ EXCLUDE_DIRS: Set[str] = {
     "recipes", "cooking", "fitness", "diet", "nutrition",
     "photography", "music", "art", "crafts",
     "recycle bin", "$recycle.bin", "system volume information",
+    "asta_nu",        # User-marked junk folder in Trading Database
+    "arhive",         # Backup/archive folder with duplicate books
 }
 
 # Cuvinte cheie care indica continut relevant trading
@@ -805,9 +807,9 @@ def chunk_text(text: str, chunk_size: int = DEFAULT_CHUNK_SIZE,
                 })
                 chunk_idx += 1
 
-            # Avanseaza cu overlap
-            pos = end_pos - char_overlap
-            if pos <= 0 and end_pos >= len(chapter_text):
+            # Avanseaza cu overlap (ensure non-negative to guard against large overlaps)
+            pos = max(0, end_pos - char_overlap)
+            if end_pos >= len(chapter_text):
                 break
             if pos >= len(chapter_text):
                 break
@@ -1296,6 +1298,9 @@ def run_pipeline(args: argparse.Namespace) -> None:
     """
     global _interrupted
 
+    if args.exclude_dir:
+        EXCLUDE_DIRS.update(d.lower() for d in args.exclude_dir)
+
     start_time = time.time()
 
     checkpoint = CheckpointManager()
@@ -1500,6 +1505,10 @@ Examples:
     parser.add_argument(
         "--batch-size", type=int, default=DEFAULT_BATCH_SIZE,
         help=f"ChromaDB upsert batch size (default: {DEFAULT_BATCH_SIZE})",
+    )
+    parser.add_argument(
+        "--exclude-dir", action="append", default=[],
+        help="Additional directory names to exclude (can be specified multiple times)",
     )
 
     return parser
