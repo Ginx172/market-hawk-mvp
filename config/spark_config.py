@@ -62,6 +62,7 @@ def get_or_create_spark_session(config: Optional[SparkConfig] = None) -> "pyspar
         .config("spark.sql.execution.arrow.pyspark.enabled", "true")
         .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
         .config("spark.ui.showConsoleProgress", "false")
+        .config("spark.ui.enabled", "false")
     )
 
     _spark_session = builder.getOrCreate()
@@ -83,6 +84,7 @@ def stop_spark() -> None:
         try:
             _spark_session.stop()
             logger.info("SparkSession stopped")
-        except Exception:
-            pass
-        _spark_session = None
+        except Exception as exc:
+            logger.debug("SparkSession stop encountered: %s", exc)
+        finally:
+            _spark_session = None
