@@ -25,7 +25,13 @@ from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from agents.knowledge_advisor.query_cache import QueryCache
+from agents.knowledge_advisor.citation_formatter import CitationFormatter, FormattedResponse
+
 logger = logging.getLogger("market_hawk.knowledge_advisor")
+
+# Minimum confidence assigned to a NEUTRAL direction signal in analyze()
+_NEUTRAL_MIN_CONFIDENCE: float = 0.3
 
 
 # ============================================================
@@ -101,6 +107,7 @@ class KnowledgeAdvisor:
         self._chain = None
         self._initialized = False
         self._collection_count = 0
+        self._cache = QueryCache()
 
     def initialize(self) -> bool:
         """
@@ -240,6 +247,13 @@ DETAILED ANSWER (with practical trading recommendations):"""
 
         try:
             start_time = time.time()
+            effective_n = n_results if n_results else self.config.n_results
+
+            # Check cache first
+            cached = self._cache.get(question, effective_n)
+            if cached is not None:
+                logger.debug("Cache hit for '%s...' (n=%d)", question[:50], effective_n)
+                return cached
 
             if n_results and n_results != self.config.n_results:
                 # Create temporary retriever with different k
@@ -266,6 +280,8 @@ DETAILED ANSWER (with practical trading recommendations):"""
             logger.info("Retrieved %d chunks for '%s...' in %.2fs",
                          len(results), question[:50], elapsed)
 
+            # Store in cache
+            self._cache.put(question, effective_n, results)
             return results
 
         except Exception:
@@ -279,6 +295,10 @@ DETAILED ANSWER (with practical trading recommendations):"""
     def query(self, question: str) -> RAGResponse:
         """
         Full RAG query: retrieve chunks + generate LLM answer.
+
+        Retrieves documents once and feeds the formatted context directly to
+        the LLM, avoiding the double-retrieval that occurred when the chain
+        internally called the retriever a second time.
 
         Args:
             question: Natural language question
@@ -296,15 +316,10 @@ DETAILED ANSWER (with practical trading recommendations):"""
         try:
             start_time = time.time()
 
-            # Get chunks for source tracking
-            docs = self._retriever.invoke(question)
+            # Retrieve documents once (cache-aware)
+            docs_raw = self._retriever.invoke(question)
 
-            # Generate answer via chain
-            answer = self._chain.invoke(question)
-
-            elapsed = time.time() - start_time
-
-            # Build source list
+            # Build source list from the single retrieval
             sources = [
                 RAGResult(
                     text=doc.page_content,
@@ -312,9 +327,34 @@ DETAILED ANSWER (with practical trading recommendations):"""
                     page=doc.metadata.get("page"),
                     metadata=doc.metadata,
                 )
-                for doc in docs
+                for doc in docs_raw
             ]
 
+            # Generate answer by passing pre-fetched context directly to LLM
+            context_text = self._format_docs(docs_raw)
+            from langchain_core.prompts import ChatPromptTemplate
+            from langchain_core.output_parsers import StrOutputParser
+
+            prompt = ChatPromptTemplate.from_template(
+                """You are a senior trading strategist with deep expertise in algorithmic trading,
+smart money concepts, technical analysis, and risk management. You have access to
+a comprehensive library of 270+ professional trading books.
+
+Based on the following context from trading literature, provide a detailed,
+actionable answer. Include specific strategies, entry/exit criteria, and
+risk management rules where applicable.
+
+CONTEXT FROM TRADING LITERATURE:
+{context}
+
+QUESTION: {question}
+
+DETAILED ANSWER (with practical trading recommendations):"""
+            )
+            answer_chain = prompt | self._llm | StrOutputParser()
+            answer = answer_chain.invoke({"context": context_text, "question": question})
+
+            elapsed = time.time() - start_time
             logger.info("RAG query answered in %.2fs (%d sources)", elapsed, len(sources))
 
             return RAGResponse(
@@ -332,20 +372,46 @@ DETAILED ANSWER (with practical trading recommendations):"""
                 sources=[], query=question
             )
 
+    def query_formatted(self, question: str) -> FormattedResponse:
+        """
+        Full RAG query that returns a citation-formatted response.
+
+        Calls :meth:`query` and passes the result through
+        :class:`~agents.knowledge_advisor.citation_formatter.CitationFormatter`.
+
+        Args:
+            question: Natural language question
+
+        Returns:
+            FormattedResponse with numbered citations and summary.
+        """
+        response = self.query(question)
+        return CitationFormatter.format_response(
+            answer=response.answer,
+            sources=response.sources,
+            query=question,
+        )
+
     # ============================================================
     # BRAIN-COMPATIBLE INTERFACE
     # ============================================================
 
     def analyze(self, symbol: str, context: Dict = None) -> Dict:
         """
-        Brain-compatible interface: analyze a symbol using knowledge base.
+        Brain-compatible interface: analyze a symbol using the knowledge base.
+
+        Extracts directional hints from retrieved chunks using
+        :meth:`~agents.knowledge_advisor.citation_formatter.CitationFormatter.extract_direction_hints`
+        so the recommendation is no longer always HOLD.
 
         Args:
             symbol: Trading symbol
             context: Additional context from Brain
 
         Returns:
-            Dict compatible with AgentResponse
+            Dict compatible with AgentResponse including a directional
+            ``recommendation`` (BUY / SELL / HOLD) derived from knowledge
+            base content.
         """
         context = context or {}
         timeframe = context.get("timeframe", "4h")
@@ -364,18 +430,30 @@ DETAILED ANSWER (with practical trading recommendations):"""
                 "reasoning": "No relevant knowledge found in 130K+ chunks",
             }
 
-        reasoning = " | ".join([
-            f"[{r.source}] {r.text[:150]}" for r in results[:3]
-        ])
+        # Extract directional signal from retrieved knowledge
+        hints = CitationFormatter.extract_direction_hints(results)
+        direction = hints["direction"]
+        confidence = hints["confidence"]
+
+        if direction == "BULLISH":
+            recommendation = "BUY"
+        elif direction == "BEARISH":
+            recommendation = "SELL"
+        else:
+            recommendation = "HOLD"
+            confidence = max(confidence, _NEUTRAL_MIN_CONFIDENCE)
+
+        reasoning = CitationFormatter.format_for_brain(results, max_sources=3)
 
         return {
-            "recommendation": "HOLD",  # Knowledge alone doesn't give direction
-            "confidence": 0.5,         # Medium confidence — needs ML confirmation
-            "reasoning": f"Knowledge base insights: {reasoning[:500]}",
+            "recommendation": recommendation,
+            "confidence": confidence,
+            "reasoning": f"Knowledge base insights ({direction}): {reasoning[:500]}",
             "metadata": {
                 "sources": [r.source for r in results],
                 "chunks_used": len(results),
                 "total_knowledge_base": self._collection_count,
+                "direction_hints": hints,
             }
         }
 
@@ -405,6 +483,7 @@ DETAILED ANSWER (with practical trading recommendations):"""
         self._llm = None
         self._chain = None
         self._initialized = False
+        self._cache.clear()
         gc.collect()
         logger.info("Knowledge Advisor cleanup complete")
 
