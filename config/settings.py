@@ -141,7 +141,7 @@ CONSENSUS_THRESHOLD = 0.60  # Minimum weighted consensus to execute
 @dataclass
 class RAGConfig:
     """Configuration for the Knowledge Advisor RAG system."""
-    # Points to EXISTING ChromaDB v2 (130K+ chunks, 1GB)
+    # Points to EXISTING ChromaDB v2 (140K+ chunks, expanding to 500K+)
     chromadb_path: str = EXISTING_CHROMADB_PATH
     collection_name: str = "algo_trading"
     embedding_model: str = "nomic-embed-text"
